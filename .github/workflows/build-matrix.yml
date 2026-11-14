@@ -1,0 +1,206 @@
+name: Build Matrix
+
+# Tests (apps/ frontend and Rust, scripts/), then the desktop app (apps/) built for macOS Apple Silicon, macOS Intel and
+# Windows x64, only on a release or a run started by hand (a push or pull request only tests: macOS minutes cost ten
+# times more in a private repository).
+# For a release (release.yml on a v* tag, with release_tag) each build uploads its bundles straight into the draft
+# release that release.yml made. A run started by hand keeps them as artifacts of the run for a day. With the updater
+# key in the secrets, each bundle also gets its updater file and .sig. No Apple or Windows code signing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: The tag of the draft release the bundles go to (release.yml); empty for artifacts.
+        type: string
+        default: ""
+
+concurrency:
+  group: build-matrix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "22"
+  # Pinned so a new stable clippy lint does not fail the build on its own.
+  RUST_TOOLCHAIN: "1.90.0"
+  # Tauri 2 on Ubuntu (https://v2.tauri.app/start/prerequisites/#linux), for clippy and the Rust tests.
+  LINUX_PACKAGES: >-
+    libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev
+    libayatana-appindicator3-dev librsvg2-dev
+
+jobs:
+  preflight-ts:
+    name: "Preflight: TypeScript"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            apps/package-lock.json
+            scripts/package-lock.json
+
+      - name: apps (typecheck, tests)
+        working-directory: apps
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: scripts (typecheck, tests)
+        working-directory: scripts
+        run: |
+          npm ci
+          npm run check
+
+  preflight-rust:
+    name: "Preflight: Rust clippy, tests"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tauri system packages
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_PACKAGES
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/src-tauri -> target
+          key: preflight
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/package-lock.json
+
+      # tauri::generate_context! embeds apps/dist, so the crate does not compile before the frontend is built.
+      - name: Frontend (tsc, vite build)
+        working-directory: apps
+        run: |
+          npm ci
+          npm run build
+
+      - name: cargo clippy
+        working-directory: apps/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        working-directory: apps/src-tauri
+        run: cargo test --locked
+
+  build:
+    name: "Build: ${{ matrix.label }}"
+    needs: [preflight-ts, preflight-rust]
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ${{ matrix.os }}
+    # Uploads into the draft release with the workflow token.
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/src-tauri -> target
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/package-lock.json
+
+      - name: Frontend packages
+        working-directory: apps
+        run: npm ci
+
+      # beforeBuildCommand builds the frontend. With TAURI_SIGNING_PRIVATE_KEY in the secrets, createUpdaterArtifacts
+      # makes the updater files and signs them; without it the build is the same, without them. The setting goes in a
+      # file: a JSON string argument could lose its quotes on its way to npx on Windows.
+      - name: tauri build
+        working-directory: apps
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          updater=()
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo '{"bundle":{"createUpdaterArtifacts":true}}' > updater.conf.json
+            updater=(--config updater.conf.json)
+          else
+            echo "::warning::No TAURI_SIGNING_PRIVATE_KEY secret: built without the updater files."
+          fi
+          npx tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${updater[@]}"
+
+      - name: Stage bundles
+        run: node .github/scripts/stage-bundles.mjs ${{ matrix.target }} staged SHA256SUMS-${{ matrix.target }}.txt
+
+      # --clobber, so a build run again replaces what it uploaded before.
+      - name: Upload to the draft release
+        if: ${{ inputs.release_tag != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$TAG" staged/* "SHA256SUMS-${{ matrix.target }}.txt" --clobber
+
+      - name: Upload bundles
+        if: ${{ inputs.release_tag == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: staged/*
+          if-no-files-found: error
+          retention-days: 1

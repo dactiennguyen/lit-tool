@@ -1,0 +1,131 @@
+name: Release
+
+# On a v* tag: checks the tag against the app version, makes a draft release, runs build-matrix.yml (tests and the
+# three builds, each uploading its bundles, updater files, .sig and SHA-256 into the draft), then adds SHA256SUMS.txt
+# and latest.json for the updater of the installed apps and publishes it with .github/release-notes.md. The body of the
+# release commit is "Có gì mới" in the app. No Apple or Windows code signing. To release 0.2.0:
+#   node .github/scripts/bump-version.mjs 0.2.0, commit ("Release 0.2.0", then what changed),
+#   git tag v0.2.0 && git push origin main v0.2.0
+# Needs the secret TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD when the key has one).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  GH_REPO: ${{ github.repository }}
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  prepare:
+    name: Check tag and version, make the draft
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Needs a v* tag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "::error::Run this workflow on a v* tag, not ${GITHUB_REF}."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tag matches the app version
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          node .github/scripts/bump-version.mjs --check "$tag"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes
+        run: sed "s/{{VERSION}}/${{ steps.version.outputs.version }}/g" .github/release-notes.md > notes.md
+
+      # A draft left by an earlier run is replaced; a published release is never changed.
+      - name: Make the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::Release $TAG is already published; not changing it."
+              exit 1
+            fi
+            gh release delete "$TAG" --yes
+          fi
+          gh release create "$TAG" --draft --verify-tag --generate-notes --title "Sky Manager $VERSION" --notes-file notes.md
+
+  build:
+    name: Build
+    needs: prepare
+    uses: ./.github/workflows/build-matrix.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+    # TAURI_SIGNING_PRIVATE_KEY and its password, for the updater files.
+    secrets: inherit
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Only the small files: the .sig of each bundle (for latest.json) and the SHA-256 of each build. The other assets
+      # are listed by name, as empty files, for latest-json.mjs to see what the draft holds.
+      - name: What the builds uploaded
+        run: |
+          set -euo pipefail
+          mkdir assets sums
+          gh release download "$TAG" --pattern '*.sig' --dir assets
+          # None left when this job runs again after it published SHA256SUMS.txt (the step below takes that one then).
+          gh release download "$TAG" --pattern 'SHA256SUMS-*.txt' --dir sums || true
+          for name in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+            [ -e "assets/$name" ] || [ -e "sums/$name" ] || : > "assets/$name"
+          done
+          ls -l assets sums
+
+      - name: SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          if compgen -G 'sums/*.txt' > /dev/null; then
+            sort -k2 sums/*.txt > SHA256SUMS.txt
+          else
+            gh release download "$TAG" --pattern SHA256SUMS.txt
+          fi
+          cat SHA256SUMS.txt
+
+      # What the updater of the installed apps reads from the latest release. Its notes are the body of the release commit.
+      - name: latest.json
+        run: |
+          set -euo pipefail
+          git log -1 --format=%b HEAD > commit-body.txt
+          node .github/scripts/latest-json.mjs assets "$VERSION" "$GH_REPO" "$TAG" commit-body.txt > latest.json
+          cat latest.json
+
+      # SHA256SUMS.txt and latest.json come, then the SHA-256 of each build go (in this order, so the job can run again
+      # at any step), then the draft is published.
+      - name: Publish the draft
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" SHA256SUMS.txt latest.json --clobber
+          for f in sums/*.txt; do
+            [ -e "$f" ] && gh release delete-asset "$TAG" "$(basename "$f")" --yes
+          done
+          gh release edit "$TAG" --draft=false --latest

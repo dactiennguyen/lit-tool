@@ -6,6 +6,7 @@ mod lit;
 mod lit_types;
 mod settings;
 mod store;
+mod update;
 
 use tauri::Manager;
 
@@ -17,6 +18,8 @@ use settings::SettingsStore;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Updates::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             // Everything lives in sky.db; the keychain is only read to migrate old secrets.
@@ -24,6 +27,7 @@ pub fn run() {
             app.manage(AccountRegistry::open(db.clone())?);
             app.manage(SettingsStore::open(db)?);
             app.manage(chat::HxTokens::default());
+            update::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,7 +47,14 @@ pub fn run() {
             lit::lit_conversations,
             chat::hx_history,
             chat::hx_send_text,
+            update::update_status,
+            update::update_check,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                update::install_on_quit(app);
+            }
+        });
 }

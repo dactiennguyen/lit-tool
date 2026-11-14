@@ -1,7 +1,6 @@
 import { Link, Outlet, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  CloudIcon,
   LayoutDashboardIcon,
   MoonIcon,
   PlusIcon,
@@ -14,6 +13,7 @@ import { useTheme } from "@/lib/theme";
 import { AccountAvatar } from "@/components/account-avatar";
 import { SessionDot, sessionLabel } from "@/components/session-status";
 import { TcpIcon } from "@/components/tcp-status";
+import { UpdateGate, UpdateLine } from "@/features/update/update-status";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -37,9 +37,7 @@ export function AppShell() {
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
         <div className="flex h-14 shrink-0 items-center gap-2 px-4">
-          <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <CloudIcon className="size-4" aria-hidden />
-          </div>
+          <img src="/lit-tool-icon.png" alt="" className="size-7 rounded-lg" />
           <span className="text-sm font-semibold tracking-tight">Sky Manager</span>
         </div>
 
@@ -54,7 +52,10 @@ export function AppShell() {
 
         <AccountList />
 
-        <div className="flex shrink-0 items-center gap-1 border-t p-2">
+        <div className="shrink-0 border-t p-2 pb-0">
+          <UpdateLine />
+        </div>
+        <div className="flex shrink-0 items-center gap-1 p-2">
           <Link to="/settings" className={cn(itemClass, "h-9 flex-1")} activeProps={{ className: activeClass }}>
             <SettingsIcon className="size-4" aria-hidden />
             Cài đặt
@@ -66,6 +67,7 @@ export function AppShell() {
       <main className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </main>
+      <UpdateGate />
     </div>
   );
 }
