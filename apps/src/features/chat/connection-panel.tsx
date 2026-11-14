@@ -1,37 +1,29 @@
-import { CheckCircle2Icon, Loader2Icon, PlugZapIcon, XCircleIcon } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2Icon, Loader2Icon, PlugZapIcon, Settings2Icon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { chatServer, type Account, type AppSettings } from "@/lib/api";
+import type { Account } from "@/lib/api";
 import { useCheckHxConnection } from "@/lib/queries";
 import { useTcpStatus } from "@/lib/tcp-status";
 import { TcpText } from "@/components/tcp-status";
+import { ServerDialog } from "./server-dialog";
 
 const STEP_LABEL = { login: "Đăng nhập", followup: "Followup" } as const;
 
-/** The account's IM username on the shared server, and a one-off TCP login check. */
-export function ConnectionPanel({
-  account,
-  username,
-  settings,
-}: {
-  account: Account;
-  username: string;
-  settings: AppSettings;
-}) {
+/** TCP status with a server details button, and a one-off TCP login check. */
+export function ConnectionPanel({ account }: { account: Account }) {
   const check = useCheckHxConnection();
   const tcp = useTcpStatus(account.id);
+  const [serversOpen, setServersOpen] = useState(false);
 
   return (
     <section aria-label="Kết nối chat" className="space-y-2 border-b p-3">
-      <div className="min-w-0 space-y-0.5">
-        <p className="truncate font-mono text-xs">{username}</p>
-        <p className="truncate font-mono text-[11px] text-muted-foreground">
-          {(() => {
-            const server = chatServer(settings)?.endpoints[0];
-            return server ? `${server.host}:${server.port}` : "Server: tự tìm khi kết nối lần đầu";
-          })()}
-        </p>
+      <div className="flex items-center justify-between gap-2">
         <TcpText status={tcp} className="text-[11px]" />
+        <Button variant="ghost" size="icon-xs" aria-label="Thông tin server chat" title="Thông tin server chat" onClick={() => setServersOpen(true)}>
+          <Settings2Icon aria-hidden />
+        </Button>
       </div>
+      <ServerDialog account={account} open={serversOpen} onOpenChange={setServersOpen} />
 
       <Button
         variant="outline"

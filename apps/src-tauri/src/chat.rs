@@ -25,6 +25,7 @@ use crate::settings::SettingsStore;
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(15);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 /// Used when the token response has no `expires_in`.
 const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(3600);
 const MAX_TOKEN_TTL: Duration = Duration::from_secs(24 * 3600);
@@ -340,6 +341,65 @@ pub async fn hx_check_connection(app: tauri::AppHandle, account_id: Uuid) -> Res
         port: session.port,
         token_expires_in,
         steps,
+    })
+}
+
+/// One server of the saved list, and whether a TCP connection to it opens.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerProbe {
+    pub host: String,
+    pub port: u16,
+    /// The endpoint chat connects to (the first of the list).
+    pub in_use: bool,
+    pub reachable: bool,
+    /// Time to open the connection, in milliseconds.
+    pub ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServersReport {
+    pub app_key: String,
+    pub rest_base: String,
+    pub cluster: Option<String>,
+    pub fetched_at: Option<u64>,
+    pub servers: Vec<ServerProbe>,
+}
+
+/// Opens (and closes at once) a TCP connection to every server of the saved
+/// list, in parallel. No login: no account is affected. Fetches and saves the
+/// list first if there is none yet.
+#[tauri::command]
+pub async fn hx_probe_servers(app: tauri::AppHandle) -> Result<ServersReport> {
+    let store = app.state::<SettingsStore>();
+    let (app_key, servers) = store.chat_server().await?;
+    let fetched_at = store.get().im_servers.filter(|s| s.app_key == app_key).map(|s| s.fetched_at);
+    let tasks: Vec<_> = servers
+        .endpoints
+        .iter()
+        .cloned()
+        .map(|e| tauri::async_runtime::spawn(async move { (hx::probe(&e.host, e.port, PROBE_TIMEOUT).await, e) }))
+        .collect();
+    let mut probes = Vec::with_capacity(tasks.len());
+    for (i, task) in tasks.into_iter().enumerate() {
+        let (result, e) = task.await.map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))?;
+        probes.push(ServerProbe {
+            host: e.host,
+            port: e.port,
+            in_use: i == 0,
+            reachable: result.is_ok(),
+            ms: result.as_ref().ok().map(|d| d.as_millis() as u64),
+            error: result.err(),
+        });
+    }
+    Ok(ServersReport {
+        rest_base: servers.rest_base().to_owned(),
+        cluster: servers.cluster.clone(),
+        app_key,
+        fetched_at,
+        servers: probes,
     })
 }
 

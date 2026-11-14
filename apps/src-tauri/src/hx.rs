@@ -560,6 +560,20 @@ pub async fn connect(
 }
 
 /// Login + followup only; sends nothing.
+/// Opens a TCP connection and closes it at once: is the endpoint reachable, and
+/// how fast. Sends nothing, so it logs no one in (or out).
+pub async fn probe(host: &str, port: u16, timeout: Duration) -> std::result::Result<Duration, String> {
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(timeout, TcpStream::connect((host, port))).await {
+        Ok(Ok(stream)) => {
+            drop(stream);
+            Ok(started.elapsed())
+        }
+        Ok(Err(e)) => Err(e.kind().to_string()),
+        Err(_) => Err(format!("quá {} s", timeout.as_secs())),
+    }
+}
+
 pub async fn connect_and_check(host: &str, port: u16, login_frame: &[u8], timeout: Duration) -> Result<Vec<HandshakeStep>> {
     Ok(connect(host, port, login_frame, None, timeout).await?.0)
 }
@@ -962,6 +976,15 @@ mod tests {
 
         assert!(build_node_template("bad", "love_100", &uuid, 0).is_err());
         assert!(build_node_template("org1#app1", "bad name", &uuid, 0).is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_reports_reachable_and_refused_ports() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(probe("127.0.0.1", port, Duration::from_secs(2)).await.is_ok());
+        drop(listener);
+        assert!(probe("127.0.0.1", port, Duration::from_secs(2)).await.is_err());
     }
 
     /// Live: `cargo test live_discovery -- --ignored --nocapture` (public endpoint, no credentials).

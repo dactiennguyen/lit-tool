@@ -36,6 +36,7 @@ pub fn run() {
             accounts::accounts_update,
             accounts::accounts_remove,
             chat::hx_check_connection,
+            chat::hx_probe_servers,
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,

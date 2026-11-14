@@ -231,3 +231,21 @@ export const useRemoveAccount = () => useAccountsMutation((account: Account) => 
 
 /** An action, not cached data: each run opens a fresh TCP login. The result is kept in tcp-status. */
 export const useCheckHxConnection = () => useMutation({ mutationFn: connectTcp });
+
+/** Reachability of every saved chat server, checked fresh each time it is shown. */
+export function useServerProbe(enabled: boolean) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: [...queryKeys.hx, "probe"],
+    queryFn: async () => {
+      const report = await api.hx.probeServers();
+      // The list may have just been fetched and saved: show it in Cài đặt too.
+      void qc.invalidateQueries({ queryKey: queryKeys.settings });
+      return report;
+    },
+    enabled,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}

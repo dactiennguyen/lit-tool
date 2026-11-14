@@ -71,7 +71,7 @@ export function ChatTab({ account }: { account: Account }) {
     <div className="flex min-h-0 flex-1">
       <section aria-label="Danh sách hội thoại" className="flex w-72 shrink-0 flex-col border-r">
         {!settings ? null : me ? (
-          <ConnectionPanel account={account} username={me} settings={settings} />
+          <ConnectionPanel account={account} />
         ) : (
           <div className="border-b p-3">
             <ChatSetupHint account={account} compact />

@@ -30,6 +30,23 @@ export interface HxCheckResult {
   steps: { step: "login" | "followup"; type: string; code: string; accepted: boolean }[];
 }
 
+/** `hx_probe_servers`: each saved server and whether a TCP connection to it opens (no login). */
+export interface ServersReport {
+  appKey: string;
+  restBase: string;
+  cluster: string | null;
+  fetchedAt: number | null;
+  servers: {
+    host: string;
+    port: number;
+    /** The server chat connects to (the first of the list). */
+    inUse: boolean;
+    reachable: boolean;
+    ms: number | null;
+    error: string | null;
+  }[];
+}
+
 export interface NewAccount {
   label: string;
   userId: string | null;
@@ -104,6 +121,8 @@ export const api = {
   hx: {
     /** Token + TCP login + followup, then disconnect. Sends no message. */
     checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
+    /** Opens and closes a TCP connection to each saved server. No login, nothing sent. */
+    probeServers: () => call<ServersReport>("hx_probe_servers"),
     /** One `messageroaming` page (newest first). Read-only. */
     history: (accountId: string, conversationId: string, conversationType: number, cursor: string | null, limit: number) =>
       call<HistoryPage>("hx_history", { accountId, conversationId, conversationType, cursor, limit }),

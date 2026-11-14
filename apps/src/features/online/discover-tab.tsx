@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AlertTriangleIcon, Loader2Icon, MapPinIcon, RadioIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { TabToolbar } from "@/components/tab-toolbar";
@@ -59,13 +59,18 @@ export function DiscoverTab({ account }: { account: Account }) {
       ) : users.length === 0 ? (
         <EmptyState icon={RadioIcon} title="Chưa thấy ai online" description="Thử làm mới sau ít phút." />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto" data-scroll-root>
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 p-5">
             {users.map((u) => (
               <UserCard key={u.key} user={u} onOpen={setViewing} />
             ))}
           </ul>
           <div className="flex flex-col items-center gap-2 pb-6">
+            {/* Loads the next page when scrolled near the end; the button stays as a fallback. */}
+            <LoadMoreSentinel
+              enabled={online.hasNextPage && !online.isFetchingNextPage && !online.error}
+              onVisible={() => void online.fetchNextPage()}
+            />
             {online.error && <p className="text-sm text-destructive">{online.error.message}</p>}
             {online.hasNextPage ? (
               <Button variant="outline" onClick={() => online.fetchNextPage()} disabled={online.isFetchingNextPage}>
@@ -81,6 +86,29 @@ export function DiscoverTab({ account }: { account: Account }) {
       <UserInfoDialog accountId={account.id} user={viewing} onClose={() => setViewing(null)} />
     </>
   );
+}
+
+/**
+ * Calls `onVisible` when it scrolls within 300px of its scroll container's view, once per time it
+ * becomes visible while `enabled`. After an error it stays off (no retry loop):
+ * the "Tải thêm" button retries.
+ */
+function LoadMoreSentinel({ enabled, onVisible }: { enabled: boolean; onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const latest = useRef(onVisible);
+  latest.current = onVisible;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+    // Re-created after each page (enabled flips), so it fires again if still in view.
+    const observer = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && latest.current(), {
+      root: el.closest("[data-scroll-root]"),
+      rootMargin: "300px",
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [enabled]);
+  return <div ref={ref} aria-hidden className="h-px w-full" />;
 }
 
 /** Open any user's info by id, without needing them in the online list. */
