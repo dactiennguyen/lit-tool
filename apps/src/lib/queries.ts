@@ -39,6 +39,16 @@ export function useAccountInfo(accountId: string | undefined) {
   });
 }
 
+export function useUserInfoMe(accountId: string | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.lit, "user_info_me", accountId],
+    queryFn: () => api.lit.userInfoMe(accountId!),
+    enabled: !!accountId,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
 export function useUserInfo(accountId: string | undefined, targetId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.lit, "user_info", accountId, targetId],

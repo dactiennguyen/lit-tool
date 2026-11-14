@@ -1,5 +1,17 @@
 import { useState } from "react";
-import { AlertTriangleIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon, UserCheckIcon, UsersIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  Loader2Icon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  ShieldCheckIcon,
+  Trash2Icon,
+  UserCheckIcon,
+  UsersIcon,
+  XCircleIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AccountAvatar } from "@/components/account-avatar";
 import { EmptyState } from "@/components/empty-state";
@@ -25,12 +37,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Account } from "@/lib/api";
+import { api, type Account } from "@/lib/api";
 import { useActiveAccount } from "@/lib/active-account";
 import { useAccounts, useRecoveredBackup, useRemoveAccount } from "@/lib/queries";
 import { AccountFormDialog } from "./account-form-dialog";
 
 const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" });
+const timeFmt = new Intl.DateTimeFormat("vi-VN", { timeStyle: "short" });
 
 export function AccountsPage() {
   const { data: accounts, isPending, error, refetch } = useAccounts();
@@ -122,6 +135,7 @@ function AccountTable({
   onRemove: (a: Account) => void;
 }) {
   const { active, setActiveId } = useActiveAccount();
+  const { statuses, check } = useSessionChecks();
 
   return (
     <table className="w-full text-sm">
@@ -131,7 +145,7 @@ function AccountTable({
           <th scope="col" className="px-3 py-2 font-medium">User ID</th>
           <th scope="col" className="px-3 py-2 font-medium">Device UUID</th>
           <th scope="col" className="px-3 py-2 font-medium">Version</th>
-          <th scope="col" className="px-3 py-2 font-medium">Session lưu lúc</th>
+          <th scope="col" className="px-3 py-2 font-medium">Session</th>
           <th scope="col" className="w-12 px-3 py-2"><span className="sr-only">Thao tác</span></th>
         </tr>
       </thead>
@@ -156,8 +170,8 @@ function AccountTable({
                 </span>
               </td>
               <td className="px-3 py-2.5 font-mono text-xs">{a.version}</td>
-              <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums">
-                {a.sessionSavedAt ? dateFmt.format(a.sessionSavedAt) : "—"}
+              <td className="px-3 py-2.5 text-xs">
+                <SessionCell savedAt={a.sessionSavedAt} status={statuses[a.id]} />
               </td>
               <td className="px-3 py-2.5 text-right">
                 <DropdownMenu>
@@ -170,6 +184,13 @@ function AccountTable({
                     <DropdownMenuItem disabled={isActive} onClick={() => setActiveId(a.id)}>
                       <UserCheckIcon aria-hidden />
                       Đặt làm đang dùng
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={statuses[a.id]?.state === "checking" && statuses[a.id]?.savedAt === a.sessionSavedAt}
+                      onClick={() => check(a)}
+                    >
+                      <ShieldCheckIcon aria-hidden />
+                      Kiểm tra session
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(a)}>
                       <PencilIcon aria-hidden />
@@ -188,6 +209,66 @@ function AccountTable({
         })}
       </tbody>
     </table>
+  );
+}
+
+/** `savedAt` = the account's sessionSavedAt when checked, so a newer sid hides the old result. */
+type SessionStatus = { savedAt: number | null } & (
+  | { state: "checking" }
+  | { state: "ok"; at: number }
+  | { state: "error"; at: number; message: string }
+);
+
+/**
+ * Checks a session with one cheap signed GET (`account/account_info`). Results
+ * live in memory only: they describe "last time you checked", not stored state.
+ */
+function useSessionChecks() {
+  const [statuses, setStatuses] = useState<Record<string, SessionStatus>>({});
+  const set = (id: string, s: SessionStatus) => setStatuses((prev) => ({ ...prev, [id]: s }));
+
+  async function check(account: Account) {
+    const savedAt = account.sessionSavedAt;
+    set(account.id, { state: "checking", savedAt });
+    try {
+      await api.lit.accountInfo(account.id);
+      set(account.id, { state: "ok", at: Date.now(), savedAt });
+      toast.success(`Session của ${account.label} còn dùng được`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Không kiểm tra được";
+      set(account.id, { state: "error", at: Date.now(), message, savedAt });
+      toast.error(`${account.label}: ${message}`);
+    }
+  }
+
+  return { statuses, check };
+}
+
+function SessionCell({ savedAt, status: raw }: { savedAt: number | null; status: SessionStatus | undefined }) {
+  const status = raw && raw.savedAt === savedAt ? raw : undefined;
+  return (
+    <div className="space-y-0.5">
+      <p className="text-muted-foreground tabular-nums">Lưu {savedAt ? dateFmt.format(savedAt) : "—"}</p>
+      {status?.state === "checking" && (
+        <p className="flex items-center gap-1 text-muted-foreground">
+          <Loader2Icon className="size-3 animate-spin" aria-hidden />
+          Đang kiểm tra…
+        </p>
+      )}
+      {status?.state === "ok" && (
+        <p className="flex items-center gap-1 text-success">
+          <CheckCircle2Icon className="size-3" aria-hidden />
+          Còn dùng được · {timeFmt.format(status.at)}
+        </p>
+      )}
+      {status?.state === "error" && (
+        <p className="flex items-center gap-1 text-destructive" title={status.message}>
+          <XCircleIcon className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">Lỗi · {timeFmt.format(status.at)}</span>
+          <span className="sr-only">: {status.message}</span>
+        </p>
+      )}
+    </div>
   );
 }
 

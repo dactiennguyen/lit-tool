@@ -370,6 +370,32 @@ pub async fn lit_user_info(
     get_for_account(&app, account_id, |p, o| build_user_info(p, &target_id, o)).await
 }
 
+/// Query for `user/get_info/me`, same as scripts/src/cli/user-me.ts.
+fn user_info_me_query() -> [(&'static str, String); 2] {
+    [("from", "me".to_owned()), ("source", "me".to_owned())]
+}
+
+/// Fields of `user/get_info/me` that must never reach the webview: the session
+/// token and the IM login credentials.
+const ME_SECRET_FIELDS: [&str; 2] = ["session", "huanxin"];
+
+fn redact_me(mut json: serde_json::Value) -> serde_json::Value {
+    if let Some(data) = json.get_mut("data").and_then(|d| d.as_object_mut()) {
+        for key in ME_SECRET_FIELDS {
+            data.remove(key);
+        }
+    }
+    json
+}
+
+/// The account's own profile, with secrets removed before it leaves the backend.
+#[tauri::command]
+pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<serde_json::Value, CommandError> {
+    let query = user_info_me_query();
+    let json = get_for_account(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await?;
+    Ok(redact_me(json))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,6 +500,33 @@ mod tests {
         for bad in ["", "a/b", "../x", "a b", &"x".repeat(129)] {
             assert!(build_user_info(&profile, bad, SignOptions::fresh().unwrap()).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn user_info_me_request_puts_from_source_first() {
+        let profile = LitProfile {
+            sid: "s", uuid: "u", version: "1", user_id: Some("u10"), siua: None, dfpid: None,
+            base_url: "https://www.litatom.com",
+        };
+        let req = build_get("user/get_info/me", &profile, &user_info_me_query(), SignOptions::fresh().unwrap()).unwrap();
+        assert_eq!(req.url.path(), "/api/sns/v1/lit/user/get_info/me");
+        assert!(req.url.query().unwrap().starts_with("from=me&source=me&app_source=litmatch&"));
+        assert!(req.headers.iter().any(|(k, v)| *k == "lit-user-id" && v == "u10"));
+    }
+
+    #[test]
+    fn redact_me_removes_session_and_im_credentials() {
+        let json = serde_json::json!({
+            "success": true, "result": 0,
+            "data": { "nickname": "A", "session": "s", "huanxin": { "password": "p" }, "huanxin_id": "love1" }
+        });
+        let out = redact_me(json);
+        assert_eq!(out["data"]["nickname"], "A");
+        assert_eq!(out["data"]["huanxin_id"], "love1");
+        assert!(out["data"].get("session").is_none());
+        assert!(out["data"].get("huanxin").is_none());
+        // Non-object data is left alone.
+        assert_eq!(redact_me(serde_json::json!({ "data": [1] }))["data"][0], 1);
     }
 
     #[test]

@@ -95,7 +95,9 @@ export const api = {
     checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
   },
   lit: {
-    /** Raw `account/account_info` JSON for a stored account. */
+    /** `user/get_info/me` for a stored account; session and IM credentials are removed by the backend. */
+    userInfoMe: (accountId: string) => call<Record<string, unknown>>("lit_user_info_me", { accountId }),
+    /** Raw `account/account_info` JSON (wallet balances) for a stored account. */
     accountInfo: (accountId: string) => call<Record<string, unknown>>("lit_account_info", { accountId }),
     /** Raw `user/get_info/:id` JSON for another user. */
     userInfo: (accountId: string, targetId: string) =>

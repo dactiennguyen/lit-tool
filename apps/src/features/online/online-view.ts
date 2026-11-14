@@ -25,6 +25,14 @@ export interface OnlineUser {
   age: number | null;
   gender: "female" | "male" | null;
   bio: string | null;
+  /** "City, CC" from ip_city / country, when present. */
+  location: string | null;
+  /** Tag names (e.g. Soulprint tags), at most 3. */
+  tags: string[];
+  /** Mood label, only when the server says to show it. */
+  mood: string | null;
+  /** `online` flag when the server sends one; null when absent. */
+  online: boolean | null;
   raw: Json;
 }
 
@@ -41,6 +49,19 @@ function parseGender(v: unknown): OnlineUser["gender"] {
   if (["girl", "female", "f", "woman"].includes(s)) return "female";
   if (["boy", "male", "m", "man"].includes(s)) return "male";
   return null;
+}
+
+function readTags(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((t) => (isObject(t) ? pickString(t, ["tag_name", "name"]) : null))
+    .filter((t): t is string => t !== null)
+    .slice(0, 3);
+}
+
+function readMood(v: unknown): string | null {
+  if (!isObject(v) || v.is_show === false) return null;
+  return pickString(v, ["mood_name"]);
 }
 
 const isUserArray = (v: unknown): v is unknown[] => Array.isArray(v) && v.length > 0 && v.every(isObject);
@@ -84,6 +105,10 @@ export function toOnlinePage(response: Json, startPos: number): OnlinePage {
         age: pickNumber(u, ["age"]),
         gender: parseGender(u.gender ?? u.sex),
         bio: pickString(u, BIO_KEYS),
+        location: [pickString(u, ["ip_city"]), pickString(u, ["country", "ip_country"])].filter(Boolean).join(", ") || null,
+        tags: readTags(u.tags),
+        mood: readMood(u.mood_status_info),
+        online: typeof u.online === "boolean" ? u.online : null,
         raw: entry,
       };
     });

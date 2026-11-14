@@ -34,6 +34,7 @@ pub fn run() {
             lit::lit_account_info,
             lit::lit_online_users,
             lit::lit_user_info,
+            lit::lit_user_info_me,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

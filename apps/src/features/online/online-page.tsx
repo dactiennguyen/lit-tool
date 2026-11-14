@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { AlertTriangleIcon, Loader2Icon, RadioIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { AlertTriangleIcon, Loader2Icon, MapPinIcon, RadioIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { RequireAccount } from "@/components/require-account";
@@ -133,25 +133,39 @@ function UserCard({ user, onOpen }: { user: OnlineUser; onOpen: (u: UserRef) => 
     <>
       <div className="relative shrink-0">
         <PersonAvatar name={user.name} src={user.avatarUrl} size="lg" />
-        <span
-          className="absolute right-0 bottom-0 size-3 rounded-full bg-success ring-2 ring-card"
-          aria-label="Đang online"
-          role="img"
-        />
+        {user.online !== false && (
+          <span
+            className="absolute right-0 bottom-0 size-3 rounded-full bg-success ring-2 ring-card"
+            aria-label="Đang online"
+            role="img"
+          />
+        )}
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <p className="truncate text-sm font-medium" title={user.name}>
           {user.name}
         </p>
-        {meta.length > 0 && (
+        {(meta.length > 0 || user.mood) && (
           <div className="flex flex-wrap gap-1">
             {meta.map((m) => (
               <Badge key={String(m)} variant="secondary" className="text-[11px]">
                 {m}
               </Badge>
             ))}
+            {user.mood && (
+              <Badge variant="outline" className="text-[11px]">
+                {user.mood}
+              </Badge>
+            )}
           </div>
         )}
+        {user.location && (
+          <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+            <MapPinIcon className="size-3 shrink-0" aria-hidden />
+            <span className="truncate">{user.location}</span>
+          </p>
+        )}
+        {user.tags.length > 0 && <p className="truncate text-xs text-muted-foreground">{user.tags.join(" · ")}</p>}
         {user.bio && <p className="line-clamp-2 text-xs text-muted-foreground">{user.bio}</p>}
         {user.id && <p className="truncate font-mono text-[11px] text-muted-foreground">ID {user.id}</p>}
       </div>

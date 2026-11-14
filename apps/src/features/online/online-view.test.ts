@@ -25,6 +25,30 @@ describe("toOnlinePage", () => {
     expect(page.hasMore).toBe(true);
   });
 
+  it("reads location, tags, mood and the online flag", () => {
+    const page = toOnlinePage(
+      {
+        data: {
+          user_infos: [
+            {
+              user_id: "a1",
+              nickname: "Lan",
+              ip_city: "Ha Noi",
+              country: "VN",
+              online: false,
+              tags: [{ tag_name: "A" }, { tag_name: "B" }, { tag_name: "C" }, { tag_name: "D" }, { nope: 1 }],
+              mood_status_info: { mood_name: "Muốn chat", is_show: true },
+            },
+            { user_id: "b2", mood_status_info: { mood_name: "Ẩn", is_show: false } },
+          ],
+        },
+      },
+      0,
+    );
+    expect(page.users[0]).toMatchObject({ location: "Ha Noi, VN", tags: ["A", "B", "C"], mood: "Muốn chat", online: false });
+    expect(page.users[1]).toMatchObject({ location: null, tags: [], mood: null, online: null });
+  });
+
   it("finds an unknown list key and unwraps nested user objects", () => {
     const page = toOnlinePage({ data: { whatever: [{ user_info: { uid: 7, name: "X" }, online: true }] } }, 30);
     expect(page.users[0]).toMatchObject({ id: "7", name: "X", key: "7" });
