@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { Conversation, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
+import type { Conversation, FeedPage, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
 
 export interface Account {
   id: string;
@@ -97,6 +97,9 @@ export function chatServer(settings: AppSettings): SavedImServers | null {
   return settings.imServers && settings.imServers.appKey === settings.imAppKey ? settings.imServers : null;
 }
 
+/** The feeds the app shows (lit.rs `FeedKind`). */
+export type FeedKind = "Trends" | "Associate";
+
 export class ApiError extends Error {}
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -147,6 +150,9 @@ export const api = {
     /** `home/online_users`, one page. */
     onlineUsers: (accountId: string, startPos: number, num: number) =>
       call<OnlineUsersPage>("lit_online_users", { accountId, startPos, num }),
+    /** One page of a feed: "Trends" (Phổ biến, `feed/hq`) or "Associate" (Kết bạn). */
+    feeds: (accountId: string, kind: FeedKind, startPos: number, num: number) =>
+      call<FeedPage>("lit_feeds", { accountId, kind, startPos, num }),
     /** `user/conversations`: the account's conversation list. */
     conversations: (accountId: string) => call<Conversation[]>("lit_conversations", { accountId }),
   },

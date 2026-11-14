@@ -33,16 +33,21 @@ export function tagNames(user: Pick<UserProfile, "tags">, limit = Infinity): str
 /** Image endpoint on the API host; it redirects to the CDN. `simage` is the small PNG thumbnail. */
 const IMAGE_BASE = "https://www.litatom.com/api/sns/v1/lit/";
 const FILE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Other CDN file keys, e.g. post pictures "feed_pic_<id>_…_<ms>.jpg": letters, digits, _ . - only. */
+const FILE_KEY = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/;
 
 /**
  * URL to render for an image field: the server sends CDN file ids (UUIDs), which
- * become `…/simage/<id>` (thumbnail) or `…/image/<id>` (full size). An absolute
+ * (or other file keys, such as post pictures) become `…/simage/<id>` (thumbnail)
+ * or `…/image/<id>` (full size). An absolute
  * https URL is passed through. Anything else (relative paths, javascript:, http:)
  * is dropped; the CSP `img-src` allows https only.
  */
 export function safeImageUrl(v: string | null, size: "thumb" | "full" = "thumb"): string | null {
   if (!v) return null;
-  if (FILE_ID.test(v)) return `${IMAGE_BASE}${size === "thumb" ? "simage" : "image"}/${v.toLowerCase()}`;
+  const kind = size === "thumb" ? "simage" : "image";
+  if (FILE_ID.test(v)) return `${IMAGE_BASE}${kind}/${v.toLowerCase()}`;
+  if (FILE_KEY.test(v) && !v.includes("..")) return `${IMAGE_BASE}${kind}/${v}`;
   try {
     const url = new URL(v);
     return url.protocol === "https:" ? url.href : null;

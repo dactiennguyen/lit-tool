@@ -8,6 +8,7 @@
 // Runtime (`npm test`): the key lists below must match the JSON exactly.
 import { describe, expect, it } from "vitest";
 import conversations from "./contract/conversations.json";
+import feedPage from "./contract/feed-page.json";
 import historyPage from "./contract/history-page.json";
 import onlinePage from "./contract/online-users-page.json";
 import sendOutcome from "./contract/send-outcome.json";
@@ -17,6 +18,9 @@ import type {
   ActiveInfo,
   ChatMessage,
   Conversation,
+  FeedItem,
+  FeedPage,
+  FeedTime,
   HistoryPage,
   MessageContent,
   MessageSender,
@@ -35,6 +39,7 @@ const typedWallet = wallet satisfies Wallet;
 const typedConversations = conversations satisfies Conversation[];
 const typedHistory = historyPage satisfies HistoryPage;
 const typedSend = sendOutcome satisfies SendOutcome;
+const typedFeed = feedPage satisfies FeedPage;
 
 type Undeclared<Json, Type> = Exclude<keyof Json, keyof Type>;
 type MustBeEmpty<K extends PropertyKey> = [K] extends [never] ? true : { undeclaredKeys: K };
@@ -55,7 +60,11 @@ export const noUndeclaredKeys: [
   MustBeEmpty<Undeclared<(typeof historyPage.messages)[number], ChatMessage>>,
   MustBeEmpty<Undeclared<(typeof historyPage.messages)[number]["contents"][number], MessageContent>>,
   MustBeEmpty<Undeclared<typeof sendOutcome, SendOutcome>>,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+  MustBeEmpty<Undeclared<typeof feedPage, FeedPage>>,
+  MustBeEmpty<Undeclared<(typeof feedPage.feeds)[number], FeedItem>>,
+  MustBeEmpty<Undeclared<Defined<(typeof feedPage.feeds)[number]["createTime"]>, FeedTime>>,
+  MustBeEmpty<Undeclared<Defined<(typeof feedPage.feeds)[number]["userInfo"]>, UserProfile>>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
 
 /** Exhaustive key list: a missing or extra name is a type error. */
 function keysOf<T>() {
@@ -75,6 +84,11 @@ const MESSAGE_KEYS = keysOf<ChatMessage>()(["id", "from", "to", "timestamp", "co
 const SENDER_KEYS = keysOf<MessageSender>()(["name", "avatar"]);
 const CONTENT_KEYS = keysOf<MessageContent>()(["type", "text", "fileName", "address", "duration", "customEvent"]);
 const SEND_KEYS = keysOf<SendOutcome>()(["serverId", "localId", "metadataError"]);
+const FEED_PAGE_KEYS = keysOf<FeedPage>()(["feeds", "hasNext", "nextStart"]);
+const FEED_ITEM_KEYS = keysOf<FeedItem>()([
+  "id", "userId", "userInfo", "content", "createTime", "pics", "video", "tags", "location", "likeNum", "commentNum",
+  "repostNum", "liked", "specialType",
+]);
 
 describe("Rust ↔ TypeScript contract", () => {
   it("profile has exactly the declared keys, secrets excluded", () => {
@@ -98,5 +112,13 @@ describe("Rust ↔ TypeScript contract", () => {
     }
     expect(typedHistory.messages.some((m) => m.sender)).toBe(true);
     expect(Object.keys(typedSend).sort()).toEqual([...SEND_KEYS].sort());
+  });
+
+  it("feed pages have exactly the declared keys, author secrets excluded", () => {
+    expect(Object.keys(typedFeed).sort()).toEqual([...FEED_PAGE_KEYS].sort());
+    const item = typedFeed.feeds[0]!;
+    expect(Object.keys(item).sort()).toEqual([...FEED_ITEM_KEYS].sort());
+    expect(Object.keys(item.userInfo!).sort()).toEqual([...PROFILE_KEYS].sort());
+    expect(JSON.stringify(typedFeed)).not.toMatch(/"session"|"huanxin"|password/);
   });
 });

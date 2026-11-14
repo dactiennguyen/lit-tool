@@ -46,6 +46,7 @@ pub fn run() {
             lit::lit_user_info,
             lit::lit_user_info_me,
             lit::lit_conversations,
+            lit::lit_feeds,
             chat::hx_history,
             chat::hx_send_text,
             update::update_status,

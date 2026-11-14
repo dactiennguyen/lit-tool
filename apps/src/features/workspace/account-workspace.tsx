@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AccountFormDialog } from "@/features/accounts/account-form-dialog";
 import { ChatTab } from "@/features/chat/chat-tab";
 import { DiscoverTab } from "@/features/online/discover-tab";
+import { FeedTab } from "@/features/feed/feed-tab";
 import { ProfileTab } from "@/features/profile/profile-tab";
 import type { Account } from "@/lib/api";
 import { litQueries, useAccounts, useCheckHxConnection } from "@/lib/queries";
@@ -37,6 +38,11 @@ export function DiscoverRoute() {
   return <DiscoverTab key={account.id} account={account} />;
 }
 
+export function FeedRoute() {
+  const account = useWorkspaceAccount();
+  return <FeedTab key={account.id} account={account} />;
+}
+
 export function ProfileRoute() {
   const account = useWorkspaceAccount();
   return <ProfileTab key={account.id} account={account} />;
@@ -45,6 +51,7 @@ export function ProfileRoute() {
 const TABS = [
   { to: "/account/$accountId/chat", label: "Tin nhắn" },
   { to: "/account/$accountId/discover", label: "Người mới" },
+  { to: "/account/$accountId/feed", label: "Bảng tin" },
   { to: "/account/$accountId/profile", label: "Hồ sơ" },
 ] as const;
 

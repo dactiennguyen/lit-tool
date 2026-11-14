@@ -146,6 +146,69 @@ pub struct OnlineUsersPage {
     pub next_start: Option<i64>,
 }
 
+/// When a post was made.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct FeedTime {
+    /// Unix seconds.
+    #[serde(default, deserialize_with = "lenient::int")]
+    pub time: Option<i64>,
+    /// The server's own wording, e.g. "2 giờ trước".
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub time_desc: Option<String>,
+}
+
+/// One post of a feed (`feed/hq`, `feed/sep_page_feeds/…`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct FeedItem {
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub id: Option<String>,
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub user_id: Option<String>,
+    /// The author; same fields as a profile.
+    #[serde(default, deserialize_with = "lenient::object")]
+    pub user_info: Option<UserProfile>,
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub content: Option<String>,
+    #[serde(default, deserialize_with = "lenient::object")]
+    pub create_time: Option<FeedTime>,
+    /// Picture file keys (CDN ids, not URLs).
+    #[serde(default, deserialize_with = "lenient::strings")]
+    pub pics: Vec<String>,
+    /// Set when the post has a video (not played by the app).
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub video: Option<String>,
+    #[serde(default, deserialize_with = "lenient::strings")]
+    pub tags: Vec<String>,
+    #[serde(default, deserialize_with = "lenient::string")]
+    pub location: Option<String>,
+    #[serde(default, deserialize_with = "lenient::int")]
+    pub like_num: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::int")]
+    pub comment_num: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::int")]
+    pub repost_num: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    pub liked: Option<bool>,
+    /// Set on non-post entries mixed into a feed (e.g. "activity_banner").
+    #[serde(rename(deserialize = "specialType"), default, deserialize_with = "lenient::string")]
+    pub special_type: Option<String>,
+}
+
+/// One page of a feed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct FeedPage {
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub feeds: Vec<FeedItem>,
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    pub has_next: Option<bool>,
+    /// Server cursor for the next page.
+    #[serde(default, deserialize_with = "lenient::int")]
+    pub next_start: Option<i64>,
+}
+
 /// One entry of `user/conversations`. Only the two fields the scripts rely on are
 /// read; an entry missing either one is skipped by [`ConversationList`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -227,6 +290,17 @@ mod lenient {
         Ok(match Value::deserialize(d)? {
             v @ Value::Object(_) => serde_json::from_value(v).ok(),
             _ => None,
+        })
+    }
+
+    /// List of non-empty strings; a non-array becomes empty and other entries are skipped.
+    pub fn strings<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+        Ok(match Value::deserialize(d)? {
+            Value::Array(items) => items
+                .into_iter()
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
         })
     }
 
@@ -371,7 +445,28 @@ mod tests {
             has_next: Some(true),
             next_start: Some(15),
         };
+        let feed = FeedPage {
+            feeds: vec![FeedItem {
+                id: Some("000000000000000000000010".into()),
+                user_id: me.user_id.clone(),
+                user_info: Some(UserProfile { online: Some(true), account_info: None, birthdate: None, ..me.clone() }),
+                content: Some("Xin chào".into()),
+                create_time: Some(FeedTime { time: Some(1731415000), time_desc: Some("2 giờ trước".into()) }),
+                pics: vec!["feed_pic_000000000000000000000001_0_1731415000000.jpg".into()],
+                video: None,
+                tags: vec!["Thể thao".into()],
+                location: Some("Hanoi".into()),
+                like_num: Some(3),
+                comment_num: Some(1),
+                repost_num: Some(0),
+                liked: Some(false),
+                special_type: None,
+            }],
+            has_next: Some(true),
+            next_start: Some(10),
+        };
         let files = [
+            ("feed-page.json", serde_json::to_value(&feed).unwrap()),
             ("user-profile.json", serde_json::to_value(&me).unwrap()),
             ("online-users-page.json", serde_json::to_value(&online).unwrap()),
             ("wallet.json", serde_json::to_value(me.account_info.clone().unwrap()).unwrap()),
@@ -379,6 +474,31 @@ mod tests {
         for (name, value) in files {
             check_contract(name, value);
         }
+    }
+
+    #[test]
+    fn feed_pages_read_leniently_and_keep_no_secrets() {
+        let page: FeedPage = parse_data(json!({ "data": {
+            "feeds": [
+                { "id": "f1", "content": " Hi ", "pics": ["k1", 5, "", "k2"], "like_num": "4", "liked": true,
+                  "create_time": { "time": 1731415000, "time_desc": "Vừa xong" }, "tags": "nope",
+                  "user_info": { "user_id": "u1", "nickname": "Lan", "session": "SECRET", "huanxin": { "password": "PW" } } },
+                { "specialType": "activity_banner", "imageInfo": { "url": "litatom://x" } },
+                "junk",
+            ],
+            "has_next": true, "next_start": 10,
+        }}))
+        .unwrap();
+        assert_eq!(page.feeds.len(), 2);
+        let f = &page.feeds[0];
+        assert_eq!((f.content.as_deref(), f.like_num, f.liked), (Some("Hi"), Some(4), Some(true)));
+        assert_eq!(f.pics, ["k1", "k2"]);
+        assert!(f.tags.is_empty());
+        assert_eq!(f.create_time.as_ref().unwrap().time_desc.as_deref(), Some("Vừa xong"));
+        assert_eq!(page.feeds[1].special_type.as_deref(), Some("activity_banner"));
+        assert_eq!((page.has_next, page.next_start), (Some(true), Some(10)));
+        let out = serde_json::to_string(&page).unwrap();
+        assert!(!out.contains("SECRET") && !out.contains("PW") && !out.contains("imageInfo"), "{out}");
     }
 
     #[test]

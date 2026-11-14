@@ -13,7 +13,7 @@ use serde::Serialize;
 use sha2::Sha256;
 use url::Url;
 
-use crate::lit_types::{Conversation, ConversationList, OnlineUsersPage, UserProfile, Wallet, parse_data};
+use crate::lit_types::{Conversation, ConversationList, FeedPage, OnlineUsersPage, UserProfile, Wallet, parse_data};
 
 const LITSIGN_SALT: &str = "R@s9!bu8";
 const STS_HMAC_KEY: &[u8] = b"I am your father";
@@ -438,6 +438,48 @@ pub async fn lit_online_users(
     get_typed(&app, account_id, |p, o| build_get("home/online_users", p, &query, o)).await
 }
 
+/// The feeds the app shows (the "Gợi ý" pages of `feed/feed_page_structure`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+pub enum FeedKind {
+    /// Phổ biến: `feed/hq`.
+    Trends,
+    /// Kết bạn: `feed/sep_page_feeds/Associate`.
+    Associate,
+}
+
+impl FeedKind {
+    pub fn endpoint(self) -> &'static str {
+        match self {
+            Self::Trends => "feed/hq",
+            Self::Associate => "feed/sep_page_feeds/Associate",
+        }
+    }
+}
+
+pub const FEED_PAGE_MAX: u32 = 50;
+const FEED_START_MAX: u32 = 2_147_483_647;
+
+/// Same bounds as `getForYouFeeds` in scripts/src/lit/api.ts.
+pub fn feed_query(start_pos: u32, num: u32) -> Result<Vec<(&'static str, String)>, LitError> {
+    if !(1..=FEED_PAGE_MAX).contains(&num) || start_pos > FEED_START_MAX {
+        return Err(LitError::Invalid("Tham số phân trang không hợp lệ".into()));
+    }
+    Ok(vec![("start_pos", start_pos.to_string()), ("num", num.to_string())])
+}
+
+/// One page of a feed, as seen from one stored account. Read-only.
+#[tauri::command]
+pub async fn lit_feeds(
+    app: tauri::AppHandle,
+    account_id: uuid::Uuid,
+    kind: FeedKind,
+    start_pos: u32,
+    num: u32,
+) -> Result<FeedPage, CommandError> {
+    let query = feed_query(start_pos, num)?;
+    get_typed(&app, account_id, |p, o| build_get(kind.endpoint(), p, &query, o)).await
+}
+
 /// `user/get_info/:id` for another user, as seen from one stored account.
 #[tauri::command]
 pub async fn lit_user_info(
@@ -687,6 +729,23 @@ mod tests {
         ] {
             assert_eq!(im_credentials(&bad), None);
         }
+    }
+
+    #[test]
+    fn feed_requests_match_the_scripts() {
+        assert!(feed_query(0, 0).is_err());
+        assert!(feed_query(0, FEED_PAGE_MAX + 1).is_err());
+        assert_eq!(feed_query(10, 20).unwrap(), [("start_pos", "10".to_owned()), ("num", "20".to_owned())]);
+        let profile = LitProfile {
+            sid: "s", uuid: "u", version: "1", user_id: Some("me"), siua: None, dfpid: None,
+            base_url: "https://www.litatom.com",
+        };
+        for (kind, path) in [(FeedKind::Trends, "/api/sns/v1/lit/feed/hq"), (FeedKind::Associate, "/api/sns/v1/lit/feed/sep_page_feeds/Associate")] {
+            let req = build_get(kind.endpoint(), &profile, &feed_query(0, 20).unwrap(), SignOptions::fresh().unwrap()).unwrap();
+            assert_eq!(req.url.path(), path);
+            assert!(req.url.query().unwrap().starts_with("start_pos=0&num=20&"));
+        }
+        assert!(serde_json::from_str::<FeedKind>("\"Nearby\"").is_err());
     }
 
     #[test]

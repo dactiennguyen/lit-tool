@@ -7,6 +7,7 @@ import {
   AccountWorkspace,
   ChatRoute,
   DiscoverRoute,
+  FeedRoute,
   ProfileRoute,
 } from "@/features/workspace/account-workspace";
 import { isId } from "@/lib/validation";
@@ -50,6 +51,7 @@ const chatRoute = createRoute({
 });
 
 const discoverRoute = createRoute({ getParentRoute: () => workspaceRoute, path: "discover", component: DiscoverRoute });
+const feedRoute = createRoute({ getParentRoute: () => workspaceRoute, path: "feed", component: FeedRoute });
 const profileRoute = createRoute({ getParentRoute: () => workspaceRoute, path: "profile", component: ProfileRoute });
 
 const routeTree = rootRoute.addChildren([
@@ -57,7 +59,7 @@ const routeTree = rootRoute.addChildren([
   overviewRoute,
   accountsRoute,
   settingsRoute,
-  workspaceRoute.addChildren([workspaceIndexRoute, chatRoute, discoverRoute, profileRoute]),
+  workspaceRoute.addChildren([workspaceIndexRoute, chatRoute, discoverRoute, feedRoute, profileRoute]),
 ]);
 
 // Hash history: the Tauri asset protocol has no server-side fallback for deep paths.

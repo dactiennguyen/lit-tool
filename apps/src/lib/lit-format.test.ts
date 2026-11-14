@@ -33,7 +33,10 @@ describe("lit-format", () => {
     expect(safeImageUrl(id)).toBe("https://www.litatom.com/api/sns/v1/lit/simage/00000000-0000-0000-0000-00000000000a");
     expect(safeImageUrl(id, "full")).toBe("https://www.litatom.com/api/sns/v1/lit/image/00000000-0000-0000-0000-00000000000a");
     expect(safeImageUrl("https://x.example/a.png")).toBe("https://x.example/a.png");
-    for (const v of [null, "", "0000-../x", "http://x/a.png", "javascript:alert(1)"]) {
+    expect(safeImageUrl("feed_pic_0a1b_0_1731415000000.jpg", "full")).toBe(
+      "https://www.litatom.com/api/sns/v1/lit/image/feed_pic_0a1b_0_1731415000000.jpg",
+    );
+    for (const v of [null, "", "0000-../x", "a..b", "_x", "a b", "http://x/a.png", "javascript:alert(1)"]) {
       expect(safeImageUrl(v)).toBeNull();
     }
   });

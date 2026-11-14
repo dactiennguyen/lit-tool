@@ -134,3 +134,39 @@ export interface SendOutcome {
   /** The message was sent but a metadata write after it failed: do not resend. */
   metadataError: string | null;
 }
+
+export interface FeedTime {
+  /** Unix seconds. */
+  time: number | null;
+  /** Server wording, e.g. "2 giờ trước". */
+  timeDesc: string | null;
+}
+
+/** One post of a feed (`feed/hq`, `feed/sep_page_feeds/Associate`). */
+export interface FeedItem {
+  id: string | null;
+  userId: string | null;
+  /** The author. */
+  userInfo: UserProfile | null;
+  content: string | null;
+  createTime: FeedTime | null;
+  /** Picture file keys (CDN ids, not URLs). */
+  pics: string[];
+  /** Set when the post has a video. */
+  video: string | null;
+  tags: string[];
+  location: string | null;
+  likeNum: number | null;
+  commentNum: number | null;
+  repostNum: number | null;
+  liked: boolean | null;
+  /** Set on non-post entries mixed into a feed (e.g. "activity_banner"). */
+  specialType: string | null;
+}
+
+export interface FeedPage {
+  feeds: FeedItem[];
+  hasNext: boolean | null;
+  /** Server cursor for the next page. */
+  nextStart: number | null;
+}
