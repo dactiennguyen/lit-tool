@@ -12,6 +12,7 @@
     "test": "node --test test/*.test.ts",
     "check": "npm run typecheck && npm test",
     "im:connect": "node src/cli/hyphenate-connect.ts",
+    "im:bootstrap": "node src/cli/hyphenate-bootstrap.ts",
     "im:history": "node src/cli/conversations.ts",
     "account": "node src/cli/account-info.ts",
     "home:online": "node src/cli/home-online.ts",

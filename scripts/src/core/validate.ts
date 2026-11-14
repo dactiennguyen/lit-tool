@@ -27,7 +27,7 @@ export function easemobOrigin(value: string = EASEMOB_REST_BASE,
   let url: URL;
   try { url = new URL(value); } catch { throw Error(invalidMessage); }
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') ||
-      !(url.hostname === 'easemob.com' || url.hostname.endsWith('.easemob.com'))) {
+      !['easemob.com', 'easecdn.com'].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`))) {
     throw Error(message);
   }
   return url.origin;

@@ -39,7 +39,9 @@ export function buildLoginFrame(template: LoginTemplate, accessToken: string): B
   const outer = readFields(template.payload);
   const body = readFields(bytesField(outer, 9));
   const auth = JSON.parse(bytesField(body, 18).toString('utf8')) as Record<string, unknown>;
-  auth.token = accessToken;
+  const actionVersion = getField(body, 17);
+  auth.token = Buffer.isBuffer(actionVersion) && actionVersion.toString('utf8') === 'v6.0'
+    ? `$t$${accessToken}` : accessToken;
   replaceBytes(body, 18, Buffer.from(JSON.stringify(auth)));
   replaceBytes(outer, 9, writeFields(body));
   return frame(writeFields(outer));
