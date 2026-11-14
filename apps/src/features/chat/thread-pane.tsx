@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { AlertTriangleIcon, Loader2Icon, MessageSquareIcon, RefreshCwIcon, SendIcon, UserRoundIcon } from "lucide-react";
 import { toast } from "sonner";
 import { PersonAvatar } from "@/components/account-avatar";
@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Account, HxConfig } from "@/lib/api";
 import type { Peer } from "@/lib/peer-directory";
 import { useHistory, useSendText } from "@/lib/queries";
+import { markRead } from "@/lib/read-markers";
 import { cn } from "@/lib/utils";
 import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog";
 import type { OpenConversation } from "./chat-page";
@@ -99,7 +100,7 @@ export function ThreadPane({
           description="Người này chưa có trong danh sách hội thoại của account. Tin đầu tiên sẽ được tính là một lượt bắt chuyện."
         />
       ) : (
-        <MessageList history={history} me={hx.username} />
+        <MessageList history={history} me={hx.username} accountId={account.id} conversationId={conversation.id} />
       )}
 
       {isGroup ? (
@@ -113,16 +114,31 @@ export function ThreadPane({
   );
 }
 
-function MessageList({ history, me }: { history: ReturnType<typeof useHistory>; me: string }) {
+function MessageList({
+  history,
+  me,
+  accountId,
+  conversationId,
+}: {
+  history: ReturnType<typeof useHistory>;
+  me: string;
+  accountId: string;
+  conversationId: string;
+}) {
   const thread = useMemo(() => toThread(history.data?.pages ?? [], me), [history.data, me]);
+  const newestId = thread[thread.length - 1]?.id;
+
+  // What is on screen counts as read.
+  useEffect(() => {
+    if (newestId) markRead(accountId, conversationId, newestId);
+  }, [accountId, conversationId, newestId]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prev = useRef({ newestId: "", oldestId: "", height: 0 });
 
   // Stick to the bottom for new messages; keep the reading position when older ones load above.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || thread.length === 0) return;
-    const newestId = thread[thread.length - 1]!.id;
+    if (!el || !newestId) return;
     const oldestId = thread[0]!.id;
     const p = prev.current;
     if (p.oldestId && oldestId !== p.oldestId && newestId === p.newestId) {
@@ -131,7 +147,7 @@ function MessageList({ history, me }: { history: ReturnType<typeof useHistory>; 
       el.scrollTop = el.scrollHeight;
     }
     prev.current = { newestId, oldestId, height: el.scrollHeight };
-  }, [thread]);
+  }, [thread, newestId]);
 
   if (history.isPending) {
     return (

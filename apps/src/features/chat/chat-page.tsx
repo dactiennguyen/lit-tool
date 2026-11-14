@@ -9,11 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Account } from "@/lib/api";
-import type { Conversation } from "@/lib/lit-types";
+import type { ChatMessage, Conversation } from "@/lib/lit-types";
 import { usePeers, type Peer } from "@/lib/peer-directory";
-import { useConversations } from "@/lib/queries";
+import { useConversations, useLatestMessages } from "@/lib/queries";
+import { markerKey, useReadMarkers } from "@/lib/read-markers";
 import { cn } from "@/lib/utils";
-import { shortId } from "./chat-view";
+import { isUnread, previewText, shortId, shortTime, sortByLatest } from "./chat-view";
 import { ConnectionPanel } from "./connection-panel";
 import { HxSettingsDialog } from "./hx-settings-dialog";
 import { ThreadPane } from "./thread-pane";
@@ -66,8 +67,8 @@ function ChatBody({ account }: { account: Account }) {
       : contacted.has(`${account.id}:${to}`)
         ? { id: to, type: 0, isNew: false }
         : conversations.isSuccess
-        ? { id: to, type: 0, isNew: true }
-        : null;
+          ? { id: to, type: 0, isNew: true }
+          : null;
 
   const select = (id: string) => navigate({ to: "/chat", search: { to: id } });
 
@@ -86,6 +87,8 @@ function ChatBody({ account }: { account: Account }) {
           </div>
         )}
         <ConversationList
+          accountId={account.id}
+          me={account.hx?.username ?? null}
           query={conversations}
           peers={peers}
           selectedId={to}
@@ -138,6 +141,8 @@ function ChatBody({ account }: { account: Account }) {
 }
 
 function ConversationList({
+  accountId,
+  me,
   query,
   peers,
   selectedId,
@@ -145,6 +150,9 @@ function ConversationList({
   extraIsNew,
   onSelect,
 }: {
+  accountId: string;
+  /** The account's IM username; null when chat is not configured (no previews then). */
+  me: string | null;
   query: ReturnType<typeof useConversations>;
   peers: ReadonlyMap<string, Peer>;
   selectedId: string | undefined;
@@ -153,6 +161,9 @@ function ConversationList({
   extraIsNew: boolean;
   onSelect: (id: string) => void;
 }) {
+  const latest = useLatestMessages(accountId, query.data ?? [], me !== null);
+  const markers = useReadMarkers();
+
   if (query.isPending) {
     return (
       <div className="space-y-2 p-3" aria-busy="true" aria-label="Đang tải hội thoại">
@@ -177,14 +188,21 @@ function ConversationList({
     );
   }
 
+  const sorted = sortByLatest(query.data, latest);
   const items: (Conversation & { isNew?: boolean })[] = extraId
-    ? [{ conversationId: extraId, conversationType: 0, isNew: extraIsNew }, ...query.data]
-    : query.data;
+    ? [{ conversationId: extraId, conversationType: 0, isNew: extraIsNew }, ...sorted]
+    : sorted;
+  const unreadOf = (id: string) =>
+    id !== selectedId && isUnread(latest.get(id)?.message, me, markers.get(markerKey(accountId, id)));
+  const unread = query.data.filter((c) => unreadOf(c.conversationId)).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
-        <p className="text-xs font-medium text-muted-foreground">{query.data.length} hội thoại</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          {query.data.length} hội thoại
+          {unread > 0 && <span className="text-primary"> · {unread} chưa đọc</span>}
+        </p>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -206,6 +224,9 @@ function ConversationList({
                 peer={peers.get(c.conversationId)}
                 selected={c.conversationId === selectedId}
                 isNew={!!c.isNew}
+                latest={latest.get(c.conversationId)}
+                unread={unreadOf(c.conversationId)}
+                me={me}
                 onSelect={onSelect}
               />
             </li>
@@ -221,14 +242,33 @@ function ConversationItem({
   peer,
   selected,
   isNew,
+  latest,
+  unread,
+  me,
   onSelect,
 }: {
   conversation: Conversation;
   peer: Peer | undefined;
   selected: boolean;
   isNew: boolean;
+  /** Undefined when no preview is fetched for this conversation. */
+  latest: { message: ChatMessage | null | undefined; error: Error | null } | undefined;
+  unread: boolean;
+  me: string | null;
   onSelect: (id: string) => void;
 }) {
+  const message = latest?.message;
+  const subtitle = message
+    ? previewText(message, me)
+    : latest?.error
+      ? "Không tải được tin cuối"
+      : message === null
+        ? "Chưa có tin nhắn"
+        : peer
+          ? shortId(c.conversationId)
+          : c.conversationType === 1
+            ? "Nhóm"
+            : "Chưa rõ tên";
   const supported = c.conversationType === 0 || c.conversationType === 1;
   const name = peer?.name ?? shortId(c.conversationId);
   return (
@@ -251,11 +291,33 @@ function ConversationItem({
         <PersonAvatar name={name} src={peer?.avatarUrl ?? null} />
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium" title={peer?.name}>
-          {name}
+        <span className="flex items-baseline gap-2">
+          <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-semibold" : "font-medium")} title={peer?.name}>
+            {name}
+          </span>
+          {message?.timestamp != null && (
+            <time
+              dateTime={new Date(message.timestamp).toISOString()}
+              className={cn("shrink-0 text-[11px] tabular-nums", unread ? "text-primary" : "text-muted-foreground")}
+            >
+              {shortTime(message.timestamp)}
+            </time>
+          )}
         </span>
-        <span className="block truncate font-mono text-[11px] text-muted-foreground" title={c.conversationId}>
-          {peer ? shortId(c.conversationId) : c.conversationType === 1 ? "Nhóm" : "Chưa rõ tên"}
+        <span className="flex items-center gap-2">
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-xs",
+              unread ? "font-medium text-foreground" : "text-muted-foreground",
+              !message && "font-mono text-[11px]",
+            )}
+            title={message ? undefined : c.conversationId}
+          >
+            {subtitle}
+          </span>
+          {unread && (
+            <span className="size-2 shrink-0 rounded-full bg-primary" role="img" aria-label="Chưa đọc" />
+          )}
         </span>
       </span>
       {isNew && <Badge variant="secondary">Mới</Badge>}

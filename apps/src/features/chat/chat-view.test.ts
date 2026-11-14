@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, HistoryPage, MessageContent } from "@/lib/lit-types";
-import { canSend, contentText, MAX_TEXT_BYTES, shortId, toThread } from "./chat-view";
+import { canSend, contentText, isUnread, MAX_TEXT_BYTES, previewText, shortId, shortTime, sortByLatest, toThread } from "./chat-view";
 
 const content = (o: Partial<MessageContent>): MessageContent => ({
   type: 0, text: null, fileName: null, address: null, duration: null, customEvent: null, ...o,
@@ -43,5 +43,39 @@ describe("chat-view", () => {
   it("shortens long ids", () => {
     expect(shortId("love_1")).toBe("love_1");
     expect(shortId("love147707828357186000")).toBe("love1477078…186000");
+  });
+});
+
+describe("conversation list helpers", () => {
+  const latest = (entries: [string, ChatMessage | null][]) =>
+    new Map(entries.map(([id, message]) => [id, { message }]));
+
+  it("previews one line and marks own messages", () => {
+    expect(previewText(msg("1", "peer", 1, "chào\n  bạn"), "me")).toBe("chào bạn");
+    expect(previewText(msg("1", "me", 1, "ok"), "me")).toBe("Bạn: ok");
+    expect(previewText(msg("1", "me", 1, "ok"), null)).toBe("ok");
+  });
+
+  it("is unread only for a newer message from the other side", () => {
+    const fromPeer = msg("20", "peer", 2);
+    expect(isUnread(fromPeer, "me", undefined)).toBe(true);
+    expect(isUnread(fromPeer, "me", "10")).toBe(true);
+    expect(isUnread(fromPeer, "me", "20")).toBe(false);
+    expect(isUnread(fromPeer, "me", "100")).toBe(false); // "100" > "20" numerically
+    expect(isUnread(msg("30", "me", 3), "me", undefined)).toBe(false);
+    expect(isUnread(null, "me", undefined)).toBe(false);
+    expect(isUnread(fromPeer, null, undefined)).toBe(false);
+  });
+
+  it("sorts by latest activity, unknown ones last in server order", () => {
+    const convs = ["a", "b", "c", "d"].map((conversationId) => ({ conversationId, conversationType: 0 }));
+    const sorted = sortByLatest(convs, latest([["b", msg("1", "x", 100)], ["d", msg("2", "x", 300)], ["c", null]]));
+    expect(sorted.map((c) => c.conversationId)).toEqual(["d", "b", "a", "c"]);
+  });
+
+  it("formats short times", () => {
+    const now = new Date(2026, 10, 14, 15, 0);
+    expect(shortTime(new Date(2026, 10, 14, 9, 5).getTime(), now)).toMatch(/0?9:05/);
+    expect(shortTime(new Date(2026, 10, 13, 9, 5).getTime(), now)).toBe("13/11");
   });
 });

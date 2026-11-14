@@ -21,6 +21,9 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(15);
 /// Used when the token response has no `expires_in`.
 const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(3600);
 const MAX_TOKEN_TTL: Duration = Duration::from_secs(24 * 3600);
+/// After a failed token request, callers get the same error for this long
+/// instead of asking again (e.g. a wrong hxPwd with one preview per conversation).
+const TOKEN_FAILURE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {
@@ -55,8 +58,18 @@ struct CachedToken {
     expires: Instant,
 }
 
+/// A failed token request: credentials fingerprint, until when it is reused, error text.
+type TokenFailure = ([u8; 32], Instant, String);
+
 #[derive(Default)]
-pub struct HxTokens(Mutex<HashMap<Uuid, CachedToken>>);
+pub struct HxTokens {
+    cache: Mutex<HashMap<Uuid, CachedToken>>,
+    /// Held while a token is requested, so parallel reads (e.g. one preview per
+    /// conversation) wait for one token instead of each requesting their own.
+    fetching: tokio::sync::Mutex<()>,
+    /// Last failed request per account.
+    failures: Mutex<HashMap<Uuid, TokenFailure>>,
+}
 
 fn fingerprint(config: &HxConfig, secret: &HxSecret) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -74,16 +87,29 @@ fn token_ttl(expires_in: Option<u64>) -> Duration {
 
 impl HxTokens {
     fn get(&self, id: Uuid, fp: &[u8; 32]) -> Option<String> {
-        let map = self.0.lock().unwrap();
+        let map = self.cache.lock().unwrap();
         map.get(&id).filter(|c| &c.fingerprint == fp && c.expires > Instant::now()).map(|c| c.token.clone())
     }
 
     fn put(&self, id: Uuid, fingerprint: [u8; 32], token: String, ttl: Duration) {
-        self.0.lock().unwrap().insert(id, CachedToken { fingerprint, token, expires: Instant::now() + ttl });
+        self.cache.lock().unwrap().insert(id, CachedToken { fingerprint, token, expires: Instant::now() + ttl });
     }
 
     fn forget(&self, id: Uuid) {
-        self.0.lock().unwrap().remove(&id);
+        self.cache.lock().unwrap().remove(&id);
+    }
+
+    fn recent_failure(&self, id: Uuid, fp: &[u8; 32]) -> Option<String> {
+        let map = self.failures.lock().unwrap();
+        map.get(&id).filter(|(f, until, _)| f == fp && *until > Instant::now()).map(|(_, _, e)| e.clone())
+    }
+
+    fn record(&self, id: Uuid, fp: [u8; 32], failure: Option<String>) {
+        let mut map = self.failures.lock().unwrap();
+        match failure {
+            Some(e) => map.insert(id, (fp, Instant::now() + TOKEN_FAILURE_TTL, e)),
+            None => map.remove(&id),
+        };
     }
 }
 
@@ -131,7 +157,21 @@ impl Session {
         if let Some(t) = tokens.get(self.account_id, &fp) {
             return Ok((t, TokenSource::Cached));
         }
-        let t = hx::request_user_token(&self.template.app_key, &self.template.username, password, self.rest_base()).await?;
+        let _one_at_a_time = tokens.fetching.lock().await;
+        // Another caller may have stored a token (or failed) while this one waited.
+        if let Some(t) = tokens.get(self.account_id, &fp) {
+            return Ok((t, TokenSource::Cached));
+        }
+        if let Some(e) = tokens.recent_failure(self.account_id, &fp) {
+            return Err(HxError::Token(format!("{e} (thử lại sau ít phút)")).into());
+        }
+        let result = hx::request_user_token(&self.template.app_key, &self.template.username, password, self.rest_base()).await;
+        let failure = result.as_ref().err().map(|e| match e {
+            HxError::Token(m) => m.clone(),
+            other => other.to_string(),
+        });
+        tokens.record(self.account_id, fp, failure);
+        let t = result?;
         tokens.put(self.account_id, fp, t.access_token.clone(), token_ttl(t.expires_in));
         Ok((t.access_token, TokenSource::Fresh))
     }
@@ -279,6 +319,20 @@ mod tests {
         assert_eq!(tokens.get(id, &fp), None);
         tokens.put(id, fp, "old".into(), Duration::ZERO);
         assert_eq!(tokens.get(id, &fp), None);
+    }
+
+    #[test]
+    fn token_failures_are_remembered_briefly_per_credentials() {
+        let tokens = HxTokens::default();
+        let id = Uuid::new_v4();
+        let fp = fingerprint(&config(None), &secret("pw1"));
+        assert_eq!(tokens.recent_failure(id, &fp), None);
+        tokens.record(id, fp, Some("HTTP 401".into()));
+        assert_eq!(tokens.recent_failure(id, &fp).as_deref(), Some("HTTP 401"));
+        // New credentials are tried at once.
+        assert_eq!(tokens.recent_failure(id, &fingerprint(&config(None), &secret("pw2"))), None);
+        tokens.record(id, fp, None);
+        assert_eq!(tokens.recent_failure(id, &fp), None);
     }
 
     #[test]

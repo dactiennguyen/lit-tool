@@ -1,6 +1,7 @@
 // Display helpers for the chat page: message text and thread ordering.
 
-import type { ChatMessage, HistoryPage, MessageContent } from "@/lib/lit-types";
+import type { ChatMessage, Conversation, HistoryPage, MessageContent } from "@/lib/lit-types";
+import { compareIds } from "@/lib/read-markers";
 
 /** Same limit as hx.rs MAX_TEXT_BYTES. */
 export const MAX_TEXT_BYTES = 4096;
@@ -33,16 +34,44 @@ export function contentText(c: MessageContent): string {
   return `[${label}${duration}]${detail ? ` ${detail}` : ""}`;
 }
 
+export const messageText = (m: ChatMessage) => m.contents.map(contentText).filter(Boolean).join("\n") || "[Tin trống]";
+
+/** One line for the conversation list, prefixed when the account sent it. */
+export function previewText(m: ChatMessage, me: string | null): string {
+  const text = messageText(m).replace(/\s+/g, " ").trim();
+  return m.from !== null && m.from === me ? `Bạn: ${text}` : text;
+}
+
+/**
+ * Unread: the latest message is from the other side and newer than the read
+ * marker. Without a marker, any latest message from the other side counts
+ * (they wrote last and it was never opened here).
+ */
+export function isUnread(latest: ChatMessage | null | undefined, me: string | null, marker: string | undefined): boolean {
+  if (!latest || !me || latest.from === me) return false;
+  return marker === undefined || compareIds(latest.id, marker) > 0;
+}
+
+/**
+ * Newest activity first. Conversations without a known last message keep the
+ * server order, after those with one.
+ */
+export function sortByLatest<C extends Conversation>(
+  list: readonly C[],
+  latest: ReadonlyMap<string, { message: ChatMessage | null | undefined }>,
+): C[] {
+  const time = (c: C) => latest.get(c.conversationId)?.message?.timestamp ?? null;
+  return list
+    .map((c, i) => ({ c, i, t: time(c) }))
+    .sort((a, b) => (a.t === null ? (b.t === null ? a.i - b.i : 1) : b.t === null ? -1 : b.t - a.t || a.i - b.i))
+    .map((x) => x.c);
+}
+
 export interface ThreadMessage {
   id: string;
   mine: boolean;
   text: string;
   timestamp: number | null;
-}
-
-/** Numeric compare of uint64 ids kept as text (no precision loss). */
-function compareIds(a: string, b: string): number {
-  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 }
 
 /**
@@ -57,7 +86,7 @@ export function toThread(pages: readonly HistoryPage[], me: string): ThreadMessa
     .map((m) => ({
       id: m.id,
       mine: m.from === me,
-      text: m.contents.map(contentText).filter(Boolean).join("\n") || "[Tin trống]",
+      text: messageText(m),
       timestamp: m.timestamp,
     }));
 }
@@ -65,4 +94,14 @@ export function toThread(pages: readonly HistoryPage[], me: string): ThreadMessa
 /** IM IDs can be long: keep the start and the end. */
 export function shortId(id: string, max = 18): string {
   return id.length <= max ? id : `${id.slice(0, max - 7)}…${id.slice(-6)}`;
+}
+
+const timeOnly = new Intl.DateTimeFormat("vi-VN", { timeStyle: "short" });
+
+/** "14:05" today, "13/11" otherwise. */
+export function shortTime(ms: number, now = new Date()): string {
+  const d = new Date(ms);
+  if (d.toDateString() === now.toDateString()) return timeOnly.format(d);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`; // ICU output varies ("13/11", "13-11")
 }

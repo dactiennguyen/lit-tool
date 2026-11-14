@@ -1,5 +1,7 @@
-import { queryOptions, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ChatMessage, Conversation } from "./lit-types";
 import { rememberPeers } from "./peer-directory";
+import { compareIds } from "./read-markers";
 import { api, type Account, type AccountPatch, type AppSettings, type HxInput, type NewAccount } from "./api";
 
 export const queryKeys = {
@@ -14,6 +16,18 @@ export const queryKeys = {
 export const conversationsKey = (accountId: string | undefined) => [...queryKeys.lit, "conversations", accountId] as const;
 export const historyKey = (accountId: string | undefined, conversationId: string | undefined) =>
   [...queryKeys.hx, "history", accountId, conversationId] as const;
+export const latestKey = (accountId: string | undefined, conversationId: string) =>
+  [...queryKeys.hx, "latest", accountId, conversationId] as const;
+
+/** Newest message of a page (by time, then id), whatever order the server used. */
+export function newestMessage(messages: readonly ChatMessage[]): ChatMessage | null {
+  let best: ChatMessage | null = null;
+  for (const m of messages) {
+    const d = best ? (m.timestamp ?? 0) - (best.timestamp ?? 0) || compareIds(m.id, best.id) : 1;
+    if (d > 0) best = m;
+  }
+  return best;
+}
 
 export function useSettings() {
   return useQuery({ queryKey: queryKeys.settings, queryFn: api.settings.get });
@@ -94,18 +108,60 @@ export function useHistory(
   conversation: { id: string; type: number } | null,
   options: { poll?: boolean } = {},
 ) {
+  const qc = useQueryClient();
   return useInfiniteQuery({
     queryKey: historyKey(accountId, conversation?.id),
-    queryFn: ({ pageParam }) =>
-      api.hx.history(accountId!, conversation!.id, conversation!.type, pageParam, HISTORY_PAGE),
+    queryFn: async ({ pageParam }) => {
+      const page = await api.hx.history(accountId!, conversation!.id, conversation!.type, pageParam, HISTORY_PAGE);
+      // The newest page also tells the conversation list what the last message is.
+      if (pageParam === null) qc.setQueryData(latestKey(accountId, conversation!.id), newestMessage(page.messages));
+      return page;
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (page) => (page.isLast ? undefined : (page.cursor ?? undefined)),
     enabled: !!accountId && !!conversation,
     retry: false,
     staleTime: 10_000,
     // Polling refetches every loaded page, so keep it to the first one.
-    refetchInterval: (q) => (options.poll && (q.state.data?.pages.length ?? 0) <= 1 ? 20_000 : false),
+    // Not after an error either, so a broken login is not retried every 20 s.
+    refetchInterval: (q) =>
+      options.poll && q.state.status !== "error" && (q.state.data?.pages.length ?? 0) <= 1 ? 20_000 : false,
     refetchIntervalInBackground: false,
+  });
+}
+
+/** Previews are fetched for at most this many conversations (one request each). */
+export const PREVIEW_LIMIT = 30;
+/** A few messages, not one: the newest entry may be a non-chat record, which is filtered out. */
+const PREVIEW_PAGE = 5;
+const LIST_POLL_MS = 60_000;
+
+/**
+ * Last message of each conversation (`null` when there is none), for previews
+ * and unread dots. One small `messageroaming` request per conversation,
+ * refreshed every minute while the window is focused.
+ */
+export function useLatestMessages(accountId: string | undefined, conversations: readonly Conversation[], enabled: boolean) {
+  const list = conversations
+    .filter((c) => c.conversationType === 0 || c.conversationType === 1)
+    .slice(0, PREVIEW_LIMIT);
+  return useQueries({
+    queries: list.map((c) => ({
+      queryKey: latestKey(accountId, c.conversationId),
+      queryFn: async () =>
+        newestMessage((await api.hx.history(accountId!, c.conversationId, c.conversationType, null, PREVIEW_PAGE)).messages),
+      enabled: enabled && !!accountId,
+      retry: false,
+      staleTime: 30_000,
+      // Stop polling after an error (e.g. bad IM credentials); "Tải lại" or a new mount retries.
+      refetchInterval: (q: { state: { status: string } }) => (q.state.status === "error" ? false : LIST_POLL_MS),
+      refetchIntervalInBackground: false,
+    })),
+    combine: (results) => {
+      const byId = new Map<string, { message: ChatMessage | null | undefined; error: Error | null }>();
+      list.forEach((c, i) => byId.set(c.conversationId, { message: results[i]!.data, error: results[i]!.error }));
+      return byId;
+    },
   });
 }
 
@@ -118,6 +174,7 @@ export function useSendText(accountId: string) {
     onSettled: (_data, _error, v) =>
       Promise.all([
         qc.invalidateQueries({ queryKey: historyKey(accountId, v.to) }),
+        qc.invalidateQueries({ queryKey: latestKey(accountId, v.to) }),
         qc.invalidateQueries({ queryKey: conversationsKey(accountId) }),
       ]),
   });
