@@ -16,6 +16,7 @@
     "account": "node src/cli/account-info.ts",
     "home:online": "node src/cli/home-online.ts",
     "user:info": "node src/cli/user-info.ts",
+    "user:me": "node src/cli/user-me.ts",
     "startup": "node src/cli/startup-api.ts",
     "eye": "node src/cli/eye.ts",
     "eye:device": "node src/cli/eye-device.ts",
