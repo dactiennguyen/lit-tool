@@ -1,5 +1,7 @@
 # Kết nối Hyphenate bằng Node.js
 
+**Node tự tạo template, không cần capture:** chạy [hyphenate-bootstrap.js](../scripts/hyphenate-bootstrap.js). [Hướng dẫn bootstrap](28-node-hyphenate-bootstrap.md) mô tả đầu vào app key/username/password, API lấy host/port và mẫu login v6 đã kiểm chứng. Các mô tả mẫu Android v3 bên dưới vẫn áp dụng cho template capture cũ.
+
 Cập nhật ngày 14/11/2026, cho bản một file [scripts/hyphenate-connect.js](../scripts/hyphenate-connect.js). Tài liệu mô tả đúng cấu hình và lệnh của bản hiện tại, không yêu cầu các script hook đã chuyển ra `/tmp`.
 
 **Kết quả hook bổ sung:** [toàn luồng gửi TXT, HTTPS đi kèm và lịch sử server](23-full-workflow-gui-tin.md). Tin Node lúc 10:19 đã được tìm thấy trong history server bằng SDK với `setIsSave(false)`, nhưng không có trong cache trên điện thoại. Nội dung gửi qua TCP; app còn cập nhật metadata qua HTTPS. Chưa xác nhận delivery/read.
@@ -12,7 +14,7 @@ Tùy chọn `--litmatch` bổ sung HTTPS metadata sau khi TCP được server ch
 
 Trong các lần điều tra trước, tin văn bản từ màn chat Litmatch đi qua `EMChatManager` → `libhyphenate.so` → TCP Hyphenate. OpenIM có kết nối riêng, nhưng không thấy lệnh gửi chat OpenIM trong những lần thử đó. Bản này hỗ trợ gửi TXT thử qua Hyphenate, chưa nhận chat, giữ phiên lâu dài hay tự reconnect. Đây không phải client Litmatch đầy đủ.
 
-Chạy script không cần điện thoại, ADB, Frida, Python hay pcap, khi `.env` đã có đủ thông tin. Vẫn cần mẫu handshake của đúng tài khoản: mẫu đã được chuyển vào `.env`, không phải đã loại bỏ phụ thuộc vào dữ liệu phiên.
+Chạy script không cần điện thoại, ADB, Frida, Python hay pcap khi `.env` đã đủ thông tin. CLI connect đọc template từ env; template có thể là mẫu capture Android v3 hoặc mẫu Node v6 tự tạo bằng bootstrap, đều phải khớp tài khoản.
 
 ## 2. Thông tin cần trong `.env`
 
@@ -20,7 +22,7 @@ File đang dùng là `scripts/.env`, được Git bỏ qua. Giữ nguyên các b
 
 | Biến | Bắt buộc? | Ý nghĩa và nguồn |
 | --- | --- | --- |
-| `HX_LOGIN_TEMPLATE_B64` | Có | Base64 của **payload protobuf đăng nhập**, không có prefix độ dài 4 byte. Mẫu được trích từ capture của cùng tài khoản; token cũ đã được thay bằng chuỗi rỗng. |
+| `HX_LOGIN_TEMPLATE_B64` | Có | Base64 của **payload protobuf đăng nhập**, không có prefix độ dài 4 byte. Dùng mẫu capture cùng tài khoản hoặc mẫu Node mới do bootstrap tạo; token trong mẫu rỗng. |
 | `HX_IM_HOST` | Có | Host/IP IM đã quan sát. Cấu hình hiện tại dùng `128.1.26.67`; một phiên trước dùng `8.219.196.25`. Không đảm bảo IP cố định. |
 | `HX_IM_PORT` | Không | Port TCP, mặc định `6717`. |
 | `HX_USERNAME` | Không | IM ID dạng `love…`. Nếu không đặt, lấy từ template; nếu đặt, bắt buộc khớp template. Không phải Lit ID hiển thị, email hay business user ID. |
@@ -36,9 +38,9 @@ MMKV `default`, key `litmatch_key_info`, có `hxPwd` và business `userId`, khô
 
 ### Template vẫn chứa những gì?
 
-Ngoài app key và IM username, template còn giữ `vid`, `cid`, phiên bản SDK, model, package, các UUID và field phiên chưa giải nghĩa đầy đủ. Base64 chỉ là cách lưu bytes, không phải mã hóa bảo mật. Không thay template bằng JSON, JWT hoặc base64 tùy ý. Đổi tài khoản cần mẫu tương ứng; sửa riêng username/password chưa đủ.
+Mẫu Android capture còn giữ `vid`, `cid`, phiên bản SDK, model, package, các UUID và field phiên chưa giải nghĩa đầy đủ. Mẫu Node v6 mới dùng UUID client/timestamp tự tạo, không cần `vid/cid` Android. Base64 là cách lưu bytes; payload phải đúng schema protobuf. Đổi tài khoản có thể chạy lại bootstrap với credential tương ứng.
 
-Token đăng nhập được chèn vào field `9.18.token` lúc chạy. Mật khẩu và token không được in ra log của script. Nếu muốn dùng `HX_PASSWORD`, bỏ giá trị `HX_ACCESS_TOKEN` cũ khỏi cấu hình/environment để tránh ưu tiên nhầm token.
+Token đăng nhập được chèn vào field `9.18.token` lúc chạy; mẫu có `9.17 = v6.0` dùng tiền tố `$t$` theo SDK Web, mẫu v3 cũ giữ định dạng cũ. Mật khẩu và token không được in ra log của script. Nếu muốn dùng `HX_PASSWORD`, bỏ giá trị `HX_ACCESS_TOKEN` cũ khỏi cấu hình/environment để tránh ưu tiên nhầm token.
 
 ## 3. Cách chạy
 
@@ -115,11 +117,46 @@ Accept: application/json
 
 Body gồm `grant_type: "password"`, `username: <IM username>`, `password: <hxPwd>`. Script dùng `access_token` trong response, chỉ log `expires_in`. Token giữ trong bộ nhớ, không ghi thêm file JSON. Request không theo redirect, có timeout 12 giây và giới hạn body response 1 MiB.
 
-REST host trên được tìm thấy trong `files/server.json` của SDK. Đã thử POST từ Node và nhận HTTP 200 cùng token mới; chưa bắt được chính app gọi endpoint này khi refresh token.
+REST host trên từng được ghi nhận trong cấu hình khảo sát trước. Ở lượt kiểm
+tra sau với tài khoản mới, `files/server.json` liệt kê tên miền `easecdn.com`;
+xem phần đối chiếu bên dưới. Không suy ra SDK luôn dùng cùng một hostname.
+
+### Đối chiếu chọn host ngày 14/11/2026
+
+- Hook `EMClient.getOptions()` trong tiến trình Litmatch cho thấy DNS config bật,
+  IM server và REST server không được đặt tĩnh qua các getter, IM port bằng 0.
+- `files/server.json` hiện liệt kê REST `a1-sgp-ga.easecdn.com` và các điểm
+  `msync-im1-sgp.easecdn.com` với IP `161.117.200.216`, `47.88.219.97`,
+  cổng 443 và 80. Đây là các lựa chọn trong snapshot, không phải danh sách cố định.
+- Với cùng tài khoản, socket ban đầu nối `161.117.200.216:443`. Sau khi đóng
+  riêng socket đó để quan sát kết nối lại, hook `connect` ghi nhận lời gọi từ
+  `libhyphenate.so` tới `47.88.219.97:80`, sau đó socket ở trạng thái ESTABLISHED.
+  Điều này chứng minh cổng có thể đổi ngay trong cùng tài khoản; chưa xác định
+  thuật toán chọn hay lý do của SDK cho từng lần.
+- Gọi `EMClient.getUserTokenFromServer` trong app và hook DNS ghi nhận
+  `a1-sgp-ga.easecdn.com`; callback báo lấy token thành công. Đây là lượt gọi
+  chủ động để quan sát, không phải bằng chứng app tự refresh trong nền.
+- Hai tài khoản đã lưu đều lấy token thành công khi script gọi
+  `https://a1-sgp-ga.easemob.com`. Trên máy khảo sát, hai tên miền REST này
+  cùng trỏ tới một chuỗi CNAME/IP tại thời điểm đo; DNS có thể thay đổi. Không
+  suy ra mọi request của hai hostname luôn giống nhau hay mọi tài khoản đều
+  dùng một host.
 
 ### Handshake TCP
 
 Mỗi frame gồm **4 byte độ dài unsigned big endian** rồi payload protobuf. Độ dài không tính 4 byte prefix. Không dùng `encodeDelimited()` của protobuf thay cho prefix này.
+
+Một phiên khác ngày 14/11/2026 kết nối `161.117.200.216:443`, được tìm từ
+socket đang hoạt động và mục `msync-im` trong `files/server.json`. Gói đăng
+nhập quan sát được dài 457 byte tính cả prefix. Vì host và cổng có thể khác
+giữa các phiên, cần xác định kết nối hiện tại trước khi lọc packet; lọc cứng
+cổng 6717 có thể bỏ sót. Sau khi tái ghép TCP, đọc prefix 4 byte, kiểm tra
+field `8 = 3`, app key và IM username trong `2.1` / `2.2` khớp tài khoản.
+Giải JSON ở `9.18`, thay `token` bằng chuỗi rỗng, mã hóa lại protobuf và lưu
+**payload không có prefix** thành Base64. `buildLoginFrame` chèn token mới và
+thêm prefix khi kết nối. Hai phản hồi trong phiên này có type/code `3/0` và
+`1/0`; Node cũng đã kết nối thành công bằng template này, không gửi tin nhắn.
+Đây là kết quả thực nghiệm, không phải schema đầy đủ hoặc bảo đảm host cố định.
 
 | Vị trí wire field | Ý nghĩa đã quan sát / cách code dùng |
 | --- | --- |
@@ -189,7 +226,7 @@ Trong chế độ gửi, sau `followup_response` là `send_attempt`, `send_respo
 - **Live bản một file sau cleanup:** ngày 14/11/2026 lấy token mới và nhận `login_response code=0`, `followup_response code=0`, `handshake_complete chatSent=false`.
 - **Một tin Node thật lúc 10:19:29 GMT+7 cùng ngày:** chọn một ID từ response Home mới, gửi qua probe riêng trong `/tmp`. Tin có local ID `17946263688492433`, UUID `f320a0df-8f8c-43b7-887c-53d185702e4d`; response type `0`, code `0`, trả lại đúng local ID và server ID `1619467109815818896`. Đây là bằng chứng server chấp nhận, chưa xác nhận nhận/đọc phía đối diện. Nội dung là lời báo đang thử kết nối và xin lỗi nếu làm phiền; chỉ gửi một lần, không retry.
 - **Sau tích hợp chế độ gửi vào file JS:** kiểm tra offline với server TCP cục bộ cho thành công, chia nhỏ frame, ACK không khớp ID, mã từ chối, thiếu server ID, đóng sớm, timeout và mặc định không gửi. Decoder đọc đúng ACK thật; builder được đối chiếu các field với packet đã gửi. Chạy CLI tích hợp với server cục bộ cũng xác nhận đúng một lần gửi, `send_complete`, không in token, và từ chối trường hợp thiếu `--to` hoặc `--text`. Không gửi thêm tin thật từ CLI tích hợp chỉ để lặp kiểm tra.
-- **Chưa có:** nhận chat bằng Node, xác nhận delivery/read, heartbeat lâu dài, reconnect, tự tìm host, tự dựng mọi field đăng nhập cho tài khoản mới, hay toàn bộ kiểm tra nghiệp vụ của app. Dữ liệu mẫu vẫn mang định danh phiên và tài khoản đã quan sát; kết quả live không bảo đảm credential/host/template luôn còn hiệu lực.
+- **Bổ sung bootstrap:** đã có API tự tìm host và logic dựng mẫu login Node v6 từ credential, xem [kết quả kiểm chứng](28-node-hyphenate-bootstrap.md). Chưa có nhận chat bằng Node, xác nhận delivery/read, heartbeat lâu dài, reconnect hay toàn bộ kiểm tra nghiệp vụ của app. Kết quả live không bảo đảm credential/host/template luôn còn hiệu lực.
 
 Phần connect trong project chỉ cần file JS, `.env` và dependency npm. Script Python/hook và dữ liệu thử đã chuyển ra `/tmp/lit-im-archive-JSRCDO`; đây là bản lưu tạm để tham khảo, không phải dependency chạy và không bảo đảm tồn tại lâu dài. Những script Python phục vụ điều tra sau này sẽ tạo trong `/tmp`; tài liệu sử dụng vẫn giữ trong `docs/`.
 
