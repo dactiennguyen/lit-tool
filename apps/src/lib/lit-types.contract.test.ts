@@ -7,14 +7,33 @@
 // since excess-property checks do not apply to imported JSON).
 // Runtime (`npm test`): the key lists below must match the JSON exactly.
 import { describe, expect, it } from "vitest";
+import conversations from "./contract/conversations.json";
+import historyPage from "./contract/history-page.json";
 import onlinePage from "./contract/online-users-page.json";
+import sendOutcome from "./contract/send-outcome.json";
 import profile from "./contract/user-profile.json";
 import wallet from "./contract/wallet.json";
-import type { ActiveInfo, MoodStatus, OnlineUsersPage, UserProfile, UserTag, VipInfo, Wallet } from "./lit-types";
+import type {
+  ActiveInfo,
+  ChatMessage,
+  Conversation,
+  HistoryPage,
+  MessageContent,
+  MoodStatus,
+  OnlineUsersPage,
+  SendOutcome,
+  UserProfile,
+  UserTag,
+  VipInfo,
+  Wallet,
+} from "./lit-types";
 
 const typedProfile = profile satisfies UserProfile;
 const typedPage = onlinePage satisfies OnlineUsersPage;
 const typedWallet = wallet satisfies Wallet;
+const typedConversations = conversations satisfies Conversation[];
+const typedHistory = historyPage satisfies HistoryPage;
+const typedSend = sendOutcome satisfies SendOutcome;
 
 type Undeclared<Json, Type> = Exclude<keyof Json, keyof Type>;
 type MustBeEmpty<K extends PropertyKey> = [K] extends [never] ? true : { undeclaredKeys: K };
@@ -30,7 +49,12 @@ export const noUndeclaredKeys: [
   MustBeEmpty<Undeclared<typeof onlinePage, OnlineUsersPage>>,
   MustBeEmpty<Undeclared<(typeof onlinePage.users)[number], UserProfile>>,
   MustBeEmpty<Undeclared<typeof wallet, Wallet>>,
-] = [true, true, true, true, true, true, true, true, true];
+  MustBeEmpty<Undeclared<(typeof conversations)[number], Conversation>>,
+  MustBeEmpty<Undeclared<typeof historyPage, HistoryPage>>,
+  MustBeEmpty<Undeclared<(typeof historyPage.messages)[number], ChatMessage>>,
+  MustBeEmpty<Undeclared<(typeof historyPage.messages)[number]["contents"][number], MessageContent>>,
+  MustBeEmpty<Undeclared<typeof sendOutcome, SendOutcome>>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
 
 /** Exhaustive key list: a missing or extra name is a type error. */
 function keysOf<T>() {
@@ -44,6 +68,11 @@ const PROFILE_KEYS = keysOf<UserProfile>()([
 ]);
 const WALLET_KEYS = keysOf<Wallet>()(["diamonds", "stars", "amethysts", "frozenDiamonds"]);
 const PAGE_KEYS = keysOf<OnlineUsersPage>()(["users", "hasNext", "nextStart"]);
+const CONVERSATION_KEYS = keysOf<Conversation>()(["conversationId", "conversationType"]);
+const HISTORY_KEYS = keysOf<HistoryPage>()(["messages", "cursor", "isLast"]);
+const MESSAGE_KEYS = keysOf<ChatMessage>()(["id", "from", "to", "timestamp", "contents"]);
+const CONTENT_KEYS = keysOf<MessageContent>()(["type", "text", "fileName", "address", "duration", "customEvent"]);
+const SEND_KEYS = keysOf<SendOutcome>()(["serverId", "localId", "metadataError"]);
 
 describe("Rust ↔ TypeScript contract", () => {
   it("profile has exactly the declared keys, secrets excluded", () => {
@@ -55,5 +84,15 @@ describe("Rust ↔ TypeScript contract", () => {
     expect(Object.keys(typedWallet).sort()).toEqual([...WALLET_KEYS].sort());
     expect(Object.keys(typedPage).sort()).toEqual([...PAGE_KEYS].sort());
     expect(Object.keys(typedPage.users[0]!).sort()).toEqual([...PROFILE_KEYS].sort());
+  });
+
+  it("chat types have exactly the declared keys", () => {
+    expect(Object.keys(typedConversations[0]!).sort()).toEqual([...CONVERSATION_KEYS].sort());
+    expect(Object.keys(typedHistory).sort()).toEqual([...HISTORY_KEYS].sort());
+    for (const m of typedHistory.messages) {
+      expect(Object.keys(m).sort()).toEqual([...MESSAGE_KEYS].sort());
+      for (const c of m.contents) expect(Object.keys(c).sort()).toEqual([...CONTENT_KEYS].sort());
+    }
+    expect(Object.keys(typedSend).sort()).toEqual([...SEND_KEYS].sort());
   });
 });

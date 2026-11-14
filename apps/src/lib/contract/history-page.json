@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "id": "1619473608067779152",
+      "from": "love_200",
+      "to": "love_100",
+      "timestamp": 1731415000123,
+      "contents": [
+        {
+          "type": 0,
+          "text": "Chào bạn",
+          "fileName": null,
+          "address": null,
+          "duration": null,
+          "customEvent": null
+        }
+      ]
+    },
+    {
+      "id": "18446744073709551615",
+      "from": "love_100",
+      "to": "love_200",
+      "timestamp": 1731415999000,
+      "contents": [
+        {
+          "type": 1,
+          "text": null,
+          "fileName": "a.jpg",
+          "address": null,
+          "duration": null,
+          "customEvent": null
+        }
+      ]
+    }
+  ],
+  "cursor": "1619467109815818896",
+  "isLast": false
+}

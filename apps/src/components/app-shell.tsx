@@ -3,6 +3,7 @@ import {
   CheckIcon,
   ChevronsUpDownIcon,
   CloudIcon,
+  LayoutDashboardIcon,
   MessagesSquareIcon,
   MoonIcon,
   RadioIcon,
@@ -29,12 +30,13 @@ import { useActiveAccount } from "@/lib/active-account";
 import { useAccounts } from "@/lib/queries";
 
 const NAV: {
-  to: "/accounts" | "/profile" | "/online" | "/chat" | "/settings";
+  to: "/overview" | "/accounts" | "/profile" | "/online" | "/chat" | "/settings";
   label: string;
   icon: LucideIcon;
   /** Only shown once at least one account exists. */
   needsAccount?: boolean;
 }[] = [
+  { to: "/overview", label: "Tổng quan", icon: LayoutDashboardIcon },
   { to: "/accounts", label: "Tài khoản", icon: UsersIcon },
   { to: "/profile", label: "Hồ sơ", icon: UserRoundIcon, needsAccount: true },
   { to: "/online", label: "Đang online", icon: RadioIcon, needsAccount: true },

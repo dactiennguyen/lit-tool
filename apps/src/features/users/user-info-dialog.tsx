@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { AlertTriangleIcon, MessageSquareIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,6 +29,8 @@ export function UserInfoDialog({
   if (user && user !== last) setLast(user);
   const shown = user ?? last;
   const info = useUserInfo(accountId, shown?.id);
+  const navigate = useNavigate();
+  const imId = info.data?.huanxinId ?? null;
 
   return (
     <Dialog open={user !== null} onOpenChange={(open) => !open && onClose()}>
@@ -62,7 +65,21 @@ export function UserInfoDialog({
             </Button>
           </div>
         ) : (
-          <ProfileDetails profile={info.data} fallbackName={shown?.name ?? ""} updatedAt={info.dataUpdatedAt} />
+          <>
+            <ProfileDetails profile={info.data} fallbackName={shown?.name ?? ""} updatedAt={info.dataUpdatedAt} />
+            {imId && (
+              <Button
+                className="w-full"
+                onClick={() => {
+                  onClose();
+                  void navigate({ to: "/chat", search: { to: imId } });
+                }}
+              >
+                <MessageSquareIcon aria-hidden />
+                Nhắn tin
+              </Button>
+            )}
+          </>
         )}
       </DialogContent>
     </Dialog>

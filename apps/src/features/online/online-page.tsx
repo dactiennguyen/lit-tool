@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveAccount } from "@/lib/active-account";
 import { cn } from "@/lib/utils";
 import { GENDER_LABEL } from "@/lib/lit-format";
+import { isId } from "@/lib/validation";
 import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog";
 import type { OnlineUser } from "./online-view";
 import { useOnlineUsers } from "./use-online-users";
@@ -93,13 +94,11 @@ export function OnlinePage() {
   );
 }
 
-const USER_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
 /** Open any user's info by id, without needing them in the online list. */
 function LookupById({ onOpen }: { onOpen: (u: UserRef) => void }) {
   const [value, setValue] = useState("");
   const id = value.trim();
-  const valid = USER_ID.test(id);
+  const valid = isId(id);
 
   function submit(e: FormEvent) {
     e.preventDefault();

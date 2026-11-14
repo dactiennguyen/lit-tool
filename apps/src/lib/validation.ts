@@ -9,6 +9,9 @@ const utf8Bytes = (s: string) => new TextEncoder().encode(s).length;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 const TOKEN = /^[A-Za-z0-9_-]+$/;
+
+/** User and IM ids: same rule as `is_id` in the Rust backend. */
+export const isId = (v: string) => /^[A-Za-z0-9_-]{1,128}$/.test(v);
 const DEVICE_TOKEN = /^[A-Za-z0-9+/=_-]{1,512}$/;
 const VERSION = /^[A-Za-z0-9._-]+$/;
 

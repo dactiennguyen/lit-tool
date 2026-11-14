@@ -79,3 +79,50 @@ export interface OnlineUsersPage {
   /** Server cursor for the next page; may legitimately be 0. */
   nextStart: number | null;
 }
+
+/** One entry of `user/conversations` (lit_types.rs `Conversation`). */
+export interface Conversation {
+  /** The peer's IM (Hyphenate) username, or a group id. */
+  conversationId: string;
+  /** 0 = one-to-one, 1 = group; other values cannot be opened. */
+  conversationType: number;
+}
+
+// ---------- IM (hx.rs / chat.rs) ----------
+
+/** 0 text, 1 image, 2 video, 3 location, 4 voice, 5 file, 6 command, 7 custom, 8 combine. */
+export interface MessageContent {
+  type: number;
+  text: string | null;
+  fileName: string | null;
+  address: string | null;
+  /** Seconds, for voice and video. */
+  duration: number | null;
+  customEvent: string | null;
+}
+
+export interface ChatMessage {
+  /** uint64 server id, kept as text. */
+  id: string;
+  from: string | null;
+  to: string | null;
+  /** Milliseconds since the epoch. */
+  timestamp: number | null;
+  contents: MessageContent[];
+}
+
+/** One `messageroaming` page, newest first. */
+export interface HistoryPage {
+  messages: ChatMessage[];
+  /** Pass back to read older messages; null on the last page. */
+  cursor: string | null;
+  isLast: boolean;
+}
+
+/** Server acceptance of one sent message (not delivery or read). */
+export interface SendOutcome {
+  serverId: string;
+  localId: string;
+  /** The message was sent but a metadata write after it failed: do not resend. */
+  metadataError: string | null;
+}

@@ -13,7 +13,7 @@ use serde::Serialize;
 use sha2::Sha256;
 use url::Url;
 
-use crate::lit_types::{OnlineUsersPage, UserProfile, Wallet, parse_data};
+use crate::lit_types::{Conversation, ConversationList, OnlineUsersPage, UserProfile, Wallet, parse_data};
 
 const LITSIGN_SALT: &str = "R@s9!bu8";
 const STS_HMAC_KEY: &[u8] = b"I am your father";
@@ -144,6 +144,8 @@ pub struct SignedRequest {
     pub url: Url,
     pub headers: Vec<(&'static str, String)>,
     pub request_id: String,
+    /// Shadow-encoded JSON body; `Some` makes this a POST.
+    pub body: Option<String>,
 }
 
 /// Port of `buildGetRequest`, except X-SIUA is only sent when the account has one.
@@ -196,10 +198,10 @@ pub fn build_get(
     if let Some(siua) = profile.siua {
         headers.push(("X-SIUA", siua.to_owned()));
     }
-    Ok(SignedRequest { url, headers, request_id: opts.request_id })
+    Ok(SignedRequest { url, headers, request_id: opts.request_id, body: None })
 }
 
-fn is_id(v: &str) -> bool {
+pub(crate) fn is_id(v: &str) -> bool {
     !v.is_empty() && v.len() <= 128 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
@@ -217,6 +219,62 @@ pub fn build_user_info(profile: &LitProfile, target_id: &str, opts: SignOptions)
     {
         req.headers.push(("lit-user-id", own.to_owned()));
     }
+    Ok(req)
+}
+
+/// The IM metadata writes the phone app makes around a chat (scripts/src/hyphenate/metadata.ts).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MetadataStep {
+    /// `user/accost_count`: only for a genuine first contact.
+    AccostCount,
+    /// `user/conversation`: registers the one-to-one conversation.
+    Conversation,
+    /// `user/conversation/source`
+    Source,
+}
+
+impl MetadataStep {
+    pub fn endpoint(self) -> &'static str {
+        match self {
+            Self::AccostCount => "user/accost_count",
+            Self::Conversation => "user/conversation",
+            Self::Source => "user/conversation/source",
+        }
+    }
+
+    fn payload(self, to: &str) -> serde_json::Value {
+        match self {
+            Self::AccostCount => serde_json::json!({ "targetId": to }),
+            Self::Conversation => serde_json::json!({ "conversation_id": to, "conversation_type": 0 }),
+            Self::Source => serde_json::json!({ "source": "other", "target_user_id": to }),
+        }
+    }
+}
+
+/// Port of `metadataPlan`.
+pub fn metadata_plan(first_contact: bool) -> Vec<MetadataStep> {
+    let mut plan = Vec::with_capacity(3);
+    if first_contact {
+        plan.push(MetadataStep::AccostCount);
+    }
+    plan.extend([MetadataStep::Conversation, MetadataStep::Source]);
+    plan
+}
+
+/// Port of `buildPostRequest`: the signed GET plus a shadow-encoded JSON body.
+/// Writes go over https only, since the URL carries the sid.
+pub fn build_post(step: MetadataStep, to: &str, profile: &LitProfile, opts: SignOptions) -> Result<SignedRequest, LitError> {
+    if !is_id(to) {
+        return Err(LitError::Invalid("IM ID người nhận không hợp lệ".into()));
+    }
+    let mut req = build_get(step.endpoint(), profile, &[], opts)?;
+    if req.url.scheme() != "https" {
+        return Err(LitError::Invalid("Request ghi dữ liệu chỉ gửi qua https".into()));
+    }
+    let mut iv = [0u8; 16];
+    getrandom::fill(&mut iv).map_err(|e| LitError::Invalid(format!("Không tạo được số ngẫu nhiên: {e}")))?;
+    req.headers.push(("Content-Type", "application/x-litatom-json; charset=UTF-8".to_owned()));
+    req.body = Some(shadow_encode(&step.payload(to).to_string(), iv));
     Ok(req)
 }
 
@@ -271,8 +329,13 @@ pub(crate) fn http_client() -> Result<&'static reqwest::Client, LitError> {
         .map_err(|e| LitError::Network(e.clone()))
 }
 
-pub async fn send_get(req: SignedRequest) -> Result<serde_json::Value, LitError> {
-    let mut builder = http_client()?.get(req.url);
+/// Sends a signed GET, or a POST when the request has a body.
+pub async fn send(req: SignedRequest) -> Result<serde_json::Value, LitError> {
+    let client = http_client()?;
+    let mut builder = match req.body {
+        Some(body) => client.post(req.url).body(body),
+        None => client.get(req.url),
+    };
     for (k, v) in &req.headers {
         builder = builder.header(*k, v);
     }
@@ -308,9 +371,9 @@ impl Serialize for CommandError {
     }
 }
 
-/// Signed GET for one stored account. The sid is read from the keychain here
+/// Signed request for one stored account. The sid is read from the keychain here
 /// and never leaves the backend.
-async fn get_for_account(
+pub(crate) async fn request_for_account(
     app: &tauri::AppHandle,
     account_id: uuid::Uuid,
     build: impl FnOnce(&LitProfile, SignOptions) -> Result<SignedRequest, LitError>,
@@ -334,16 +397,16 @@ async fn get_for_account(
         base_url: &base_url,
     };
     let request = build(&profile, SignOptions::fresh()?)?;
-    Ok(send_get(request).await?)
+    Ok(send(request).await?)
 }
 
-/// [`get_for_account`] with the response `data` parsed as `T` (see lit_types.rs).
+/// [`request_for_account`] with the response `data` parsed as `T` (see lit_types.rs).
 async fn get_typed<T: serde::de::DeserializeOwned>(
     app: &tauri::AppHandle,
     account_id: uuid::Uuid,
     build: impl FnOnce(&LitProfile, SignOptions) -> Result<SignedRequest, LitError>,
 ) -> Result<T, CommandError> {
-    let json = get_for_account(app, account_id, build).await?;
+    let json = request_for_account(app, account_id, build).await?;
     Ok(parse_data(json)?)
 }
 
@@ -398,6 +461,31 @@ pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> 
     get_typed(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await
 }
 
+/// `user/conversations`: the account's Litmatch conversation list. Entries
+/// without a valid IM ID are dropped (see `ConversationList`).
+#[tauri::command]
+pub async fn lit_conversations(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<Vec<Conversation>, CommandError> {
+    let list: ConversationList = get_typed(&app, account_id, |p, o| build_get("user/conversations", p, &[], o)).await?;
+    Ok(list.into_valid())
+}
+
+/// Runs `plan` in order and stops at the first failure: no retries, since
+/// a write whose outcome is unknown must not be repeated blindly.
+pub(crate) async fn sync_metadata(
+    app: &tauri::AppHandle,
+    account_id: uuid::Uuid,
+    to: &str,
+    plan: &[MetadataStep],
+) -> Result<(), CommandError> {
+    for &step in plan {
+        request_for_account(app, account_id, |p, o| build_post(step, to, p, o)).await.map_err(|e| match e {
+            CommandError::Lit(e) => CommandError::Lit(LitError::Invalid(format!("{}: {e}", step.endpoint()))),
+            other => other,
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,6 +538,52 @@ mod tests {
             h["X-Application-Info"],
             "xCur9oYpgJGphl2g6aMtKmr5KmMg_oTAW8Wk0VgofiRCXB9cHNgZk6lTPiBTKrZBtywHpBuSzVaclga4iHzBTfDsMTMQN0tQoj06XtE3HavPtkGjoipjfU-6sI-jRUTeiBGR1BTyruyMEwLCfDESP_EiAzYqHRfXK2Oy3k9TAHAhju_lhNoGhBmhDQ7o9qMGYszhSqo2R0fmY9NGW3QHYJKC2oCQR-GWv1H8gQznEqjvbtESIZzXwvHzomPWsfudABEiM0RVZneImaq7zN3u_w"
         );
+    }
+
+    #[test]
+    fn post_requests_match_typescript() {
+        let profile = LitProfile {
+            sid: "test-sid",
+            uuid: "dev-uuid-1",
+            version: "7.77.0",
+            user_id: Some("u10"),
+            siua: Some("SIUA-TOKEN"),
+            dfpid: Some("DFP1"),
+            base_url: "https://www.litatom.com",
+        };
+        let opts = || SignOptions { now_ms: 1731415000123, request_id: REQ_ID.into(), shadow_iv: IV };
+        let cases = [
+            (MetadataStep::Conversation, "user/conversation", r#"{"conversation_id":"love_200","conversation_type":0}"#),
+            (MetadataStep::Source, "user/conversation/source", r#"{"source":"other","target_user_id":"love_200"}"#),
+            (MetadataStep::AccostCount, "user/accost_count", r#"{"targetId":"love_200"}"#),
+        ];
+        for (step, endpoint, body) in cases {
+            let req = build_post(step, "love_200", &profile, opts()).unwrap();
+            assert_eq!(
+                req.url.as_str(),
+                format!("https://www.litatom.com/api/sns/v1/lit/{endpoint}?app_source=litmatch&appid=NxUUhRSQH3qPJmY2Vn%2FedRz4vrc%3D&lang=vi&loc=US&loctype=0&model=Pixel+8+Pro&net_type=wifi&os=33&uuid=dev-uuid-1&version=7.77.0&platform=android&sid=test-sid")
+            );
+            let h: std::collections::HashMap<_, _> = req.headers.iter().cloned().collect();
+            assert_eq!(h["Content-Type"], "application/x-litatom-json; charset=UTF-8");
+            assert_eq!(h["litSign"], "MXwwMTIyOTE2ZDhlOTM5ZGY4MjA3NGI0MWI1YmE3NmViOQ==");
+            assert_eq!(h["lit-user-id"], "u10");
+            // Body IV is random, so compare the decoded JSON (same key order as TS).
+            assert_eq!(shadow_decode(req.body.as_deref().unwrap()).unwrap(), body);
+        }
+    }
+
+    #[test]
+    fn post_requests_validate_target_and_scheme() {
+        let mut profile = LitProfile {
+            sid: "s", uuid: "u", version: "1", user_id: None, siua: None, dfpid: None, base_url: "https://www.litatom.com",
+        };
+        for bad in ["", "a b", "../x"] {
+            assert!(build_post(MetadataStep::Conversation, bad, &profile, SignOptions::fresh().unwrap()).is_err());
+        }
+        profile.base_url = "http://127.0.0.1:9";
+        assert!(build_post(MetadataStep::Conversation, "love_1", &profile, SignOptions::fresh().unwrap()).is_err());
+        assert_eq!(metadata_plan(false), [MetadataStep::Conversation, MetadataStep::Source]);
+        assert_eq!(metadata_plan(true)[0], MetadataStep::AccostCount);
     }
 
     #[test]

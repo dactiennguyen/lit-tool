@@ -1,4 +1,5 @@
 mod accounts;
+mod chat;
 mod hx;
 mod lit;
 mod lit_types;
@@ -19,6 +20,7 @@ pub fn run() {
             let registry = AccountRegistry::open(&dir, Box::new(KeyringStore))?;
             app.manage(registry);
             app.manage(SettingsStore::open(&dir)?);
+            app.manage(chat::HxTokens::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -36,6 +38,9 @@ pub fn run() {
             lit::lit_online_users,
             lit::lit_user_info,
             lit::lit_user_info_me,
+            lit::lit_conversations,
+            chat::hx_history,
+            chat::hx_send_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { OnlineUsersPage, UserProfile, Wallet } from "./lit-types";
+import type { Conversation, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
 
 export interface Account {
   id: string;
@@ -94,6 +94,15 @@ export const api = {
   hx: {
     /** Token + TCP login + followup, then disconnect. Sends no message. */
     checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
+    /** One `messageroaming` page (newest first). Read-only. */
+    history: (accountId: string, conversationId: string, conversationType: number, cursor: string | null, limit: number) =>
+      call<HistoryPage>("hx_history", { accountId, conversationId, conversationType, cursor, limit }),
+    /**
+     * Sends exactly one text message and waits for the server ACK. `firstContact`
+     * also writes the Litmatch metadata for a new conversation. Never retried.
+     */
+    sendText: (accountId: string, to: string, text: string, firstContact: boolean) =>
+      call<SendOutcome>("hx_send_text", { accountId, to, text, firstContact }),
   },
   lit: {
     /** `user/get_info/me` for a stored account. Session and IM credentials never leave the backend. */
@@ -105,6 +114,8 @@ export const api = {
     /** `home/online_users`, one page. */
     onlineUsers: (accountId: string, startPos: number, num: number) =>
       call<OnlineUsersPage>("lit_online_users", { accountId, startPos, num }),
+    /** `user/conversations`: the account's conversation list. */
+    conversations: (accountId: string) => call<Conversation[]>("lit_conversations", { accountId }),
   },
   settings: {
     get: () => call<AppSettings>("settings_get"),

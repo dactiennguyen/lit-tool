@@ -146,6 +146,34 @@ pub struct OnlineUsersPage {
     pub next_start: Option<i64>,
 }
 
+/// One entry of `user/conversations`. Only the two fields the scripts rely on are
+/// read; an entry missing either one is skipped by [`ConversationList`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct Conversation {
+    /// The peer's IM (Hyphenate) username, or a group id.
+    pub conversation_id: String,
+    /// 0 = one-to-one, 1 = group; other values are listed but cannot be opened.
+    pub conversation_type: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct ConversationList {
+    #[serde(default, deserialize_with = "lenient::list")]
+    conversations: Vec<Conversation>,
+}
+
+impl ConversationList {
+    /// Entries whose id is a valid IM ID, first occurrence only.
+    pub fn into_valid(self) -> Vec<Conversation> {
+        let mut seen = std::collections::HashSet::new();
+        self.conversations
+            .into_iter()
+            .filter(|c| crate::lit::is_id(&c.conversation_id) && seen.insert(c.conversation_id.clone()))
+            .collect()
+    }
+}
+
 /// `data` of an already accepted response (see `decode_response`), as `T`.
 pub fn parse_data<T: DeserializeOwned>(json: serde_json::Value) -> Result<T, LitError> {
     #[derive(Deserialize)]
@@ -213,6 +241,21 @@ mod lenient {
             _ => Vec::new(),
         })
     }
+}
+
+/// Writes or checks one file in `apps/src/lib/contract/` (see `contract_files_match_typescript`).
+#[cfg(test)]
+pub(crate) fn check_contract(name: &str, value: serde_json::Value) {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/contract");
+    let path = dir.join(name);
+    let expected = format!("{}\n", serde_json::to_string_pretty(&value).unwrap());
+    if std::env::var_os("UPDATE_CONTRACT").is_some() {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, &expected).unwrap();
+    }
+    let actual = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("missing {}; run UPDATE_CONTRACT=1 cargo test contract", path.display()));
+    assert_eq!(actual, expected, "{name} is stale; run UPDATE_CONTRACT=1 cargo test contract");
 }
 
 #[cfg(test)]
@@ -322,7 +365,6 @@ mod tests {
     /// Regenerate after changing a struct: `UPDATE_CONTRACT=1 cargo test contract`.
     #[test]
     fn contract_files_match_typescript() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/contract");
         let me = me();
         let online = OnlineUsersPage {
             users: vec![UserProfile { online: Some(true), account_info: None, birthdate: None, ..me.clone() }],
@@ -335,15 +377,22 @@ mod tests {
             ("wallet.json", serde_json::to_value(me.account_info.clone().unwrap()).unwrap()),
         ];
         for (name, value) in files {
-            let path = dir.join(name);
-            let expected = format!("{}\n", serde_json::to_string_pretty(&value).unwrap());
-            if std::env::var_os("UPDATE_CONTRACT").is_some() {
-                std::fs::create_dir_all(&dir).unwrap();
-                std::fs::write(&path, &expected).unwrap();
-            }
-            let actual = std::fs::read_to_string(&path)
-                .unwrap_or_else(|_| panic!("missing {}; run UPDATE_CONTRACT=1 cargo test contract", path.display()));
-            assert_eq!(actual, expected, "{name} is stale; run UPDATE_CONTRACT=1 cargo test contract");
+            check_contract(name, value);
         }
+    }
+
+    #[test]
+    fn conversations_skip_invalid_and_duplicate_entries() {
+        let json = serde_json::json!({ "data": { "conversations": [
+            { "conversation_id": "love_1", "conversation_type": 0, "extra": 1 },
+            { "conversation_id": "a b", "conversation_type": 0 },
+            { "conversation_id": "love_2" },
+            { "conversation_id": "love_1", "conversation_type": 0 },
+            "junk",
+            { "conversation_id": "grp_9", "conversation_type": 1 },
+        ] } });
+        let list = parse_data::<ConversationList>(json).unwrap().into_valid();
+        assert_eq!(list.iter().map(|c| c.conversation_id.as_str()).collect::<Vec<_>>(), ["love_1", "grp_9"]);
+        check_contract("conversations.json", serde_json::to_value(&list).unwrap());
     }
 }
