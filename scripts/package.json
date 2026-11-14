@@ -14,6 +14,7 @@
     "im:connect": "node src/cli/hyphenate-connect.ts",
     "im:bootstrap": "node src/cli/hyphenate-bootstrap.ts",
     "im:history": "node src/cli/conversations.ts",
+    "im:listen": "node src/cli/tcp-listen.ts",
     "account": "node src/cli/account-info.ts",
     "home:online": "node src/cli/home-online.ts",
     "feed": "node src/cli/feed.ts",
