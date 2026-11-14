@@ -77,7 +77,7 @@ export function AccountsPage() {
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <p>
             File danh sách account bị hỏng nên đã được cất sang{" "}
-            <code className="font-mono text-xs break-all">{recoveredBackup}</code>. Session vẫn còn trong Keychain.
+            <code className="font-mono text-xs break-all">{recoveredBackup}</code>. Session vẫn còn trong secrets.json.
           </p>
         </div>
       )}
@@ -246,7 +246,7 @@ function RemoveAccountDialog({ account, onClose }: { account: Account | null; on
         <AlertDialogHeader>
           <AlertDialogTitle>Xoá {account?.label}?</AlertDialogTitle>
           <AlertDialogDescription>
-            Thông tin account và session trong Keychain sẽ bị xoá khỏi máy này. Không hoàn tác được.
+            Thông tin account, session và mật khẩu chat sẽ bị xoá khỏi máy này. Không hoàn tác được.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

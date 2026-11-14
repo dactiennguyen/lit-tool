@@ -57,8 +57,11 @@ export interface AppSettings {
   imRestBase: string;
   /** Connect to the chat server right after an account logs in. */
   autoConnectTcp: boolean;
-  /** Identity inside the saved login template; the template never leaves the backend. */
-  imTemplate: { appKey: string; username: string } | null;
+  /**
+   * Identity inside the login template in use (saved, or the built-in default);
+   * the template itself never leaves the backend. Null only if a saved one is unreadable.
+   */
+  imTemplate: { appKey: string; username: string; isDefault: boolean } | null;
 }
 
 /** Blank `imTemplateB64` keeps the saved template. */

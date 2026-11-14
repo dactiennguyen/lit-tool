@@ -26,6 +26,23 @@ pub fn write_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> io::R
     fs::rename(&tmp, path)
 }
 
+/// Like [`write_json_atomic`], but the file is created readable by the owner only
+/// (mode 600 on Unix), for secrets.
+pub fn write_private_json_atomic<T: Serialize + ?Sized>(path: &Path, value: &T) -> io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    let _ = fs::remove_file(&tmp); // `mode` only applies to a newly created file
+    {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut f = options.open(&tmp)?;
+        f.write_all(&serde_json::to_vec_pretty(value).map_err(io::Error::other)?)?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)
+}
+
 pub enum Loaded<T> {
     Ok(T),
     Missing,

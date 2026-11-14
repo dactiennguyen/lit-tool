@@ -1,8 +1,8 @@
 //! Account registry for Sky Manager.
 //!
 //! Non-secret metadata lives in `accounts.json` inside the app data dir.
-//! The session token (`sid`) is stored in the OS credential store and is
-//! never sent back to the webview. So is the IM password (hxPwd), which is
+//! The session token (`sid`) is kept in the secret store (secrets.json, see
+//! secrets.rs) and is never sent back to the webview. So is the IM password (hxPwd), which is
 //! taken from the account's own profile when it logs in.
 
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ pub struct Account {
     pub created_at: u64,
     /// When the sid was last written to the credential store (ms since epoch).
     pub session_saved_at: Option<u64>,
-    /// IM (Hyphenate) identity from the last login; the password lives in the keychain.
+    /// IM (Hyphenate) identity from the last login; the password lives in the secret store.
     /// (Older files have a per-account `hx` object instead; it is ignored.)
     #[serde(default)]
     pub im: Option<ImIdentity>,
@@ -179,6 +179,8 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, key: &str) -> Result<()>;
 }
 
+/// The OS keychain, where earlier versions kept secrets. Only read now, to
+/// migrate entries into secrets.json (see secrets.rs).
 pub struct KeyringStore;
 
 impl KeyringStore {
@@ -238,8 +240,8 @@ pub struct AccountRegistry {
     secrets: Box<dyn SecretStore>,
     /// Set when accounts.json was unreadable and moved aside on startup.
     recovered_backup: Option<PathBuf>,
-    /// sids already read from (or written to) the keychain this run, so each
-    /// API call doesn't hit the keychain again.
+    /// sids already read from (or written to) the secret store this run, so each
+    /// API call doesn't read it again.
     sessions: Mutex<HashMap<Uuid, String>>,
     /// Same for IM passwords.
     im_passwords: Mutex<HashMap<Uuid, String>>,
@@ -334,7 +336,7 @@ impl AccountRegistry {
         }
         let updated = account.clone();
 
-        // Metadata first: if that fails nothing has changed. If the keychain
+        // Metadata first: if that fails nothing has changed. If the secret
         // write then fails, roll the metadata back so the old sid stays valid.
         self.persist(&next)?;
         if let Some(sid) = sid {
@@ -354,11 +356,11 @@ impl AccountRegistry {
         if let Some(sid) = self.sessions.lock().unwrap().get(&id) {
             return Ok((account, sid.clone()));
         }
-        // May block (keychain prompt): callers run this off the async runtime.
+        // Touches the disk (and once the old keychain): callers run this off the async runtime.
         let sid = self
             .secrets
             .get(&id.to_string())?
-            .ok_or_else(|| AccountError::Invalid("Account chưa có session trong Keychain, hãy nhập lại sid".into()))?;
+            .ok_or_else(|| AccountError::Invalid("Account chưa có session đã lưu, hãy nhập lại sid".into()))?;
         self.sessions.lock().unwrap().insert(id, sid.clone());
         Ok((account, sid))
     }
@@ -378,7 +380,7 @@ impl AccountRegistry {
             return Ok(None);
         }
 
-        // Keychain first: metadata only claims credentials that are really stored.
+        // Secret first: metadata only claims credentials that are really stored.
         self.secrets.set(&im_key(id), password)?;
         self.im_passwords.lock().unwrap().insert(id, password.to_owned());
         let mut accounts = self.accounts.lock().unwrap();
@@ -391,7 +393,7 @@ impl AccountRegistry {
         drop(accounts);
         // Per-account IM settings of earlier versions are superseded: best-effort cleanup.
         if let Err(e) = self.secrets.delete(&legacy_hx_key(id)) {
-            eprintln!("legacy chat settings left in the keychain: {e}");
+            eprintln!("legacy chat settings not cleaned up: {e}");
         }
         Ok(Some(updated))
     }
@@ -406,7 +408,7 @@ impl AccountRegistry {
         Ok(pw)
     }
 
-    /// IM username and password, for the backend only. May block on the keychain.
+    /// IM username and password, for the backend only. Reads the secret store.
     pub fn im_material(&self, id: Uuid) -> Result<(String, String)> {
         let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
         let im = account
@@ -426,11 +428,11 @@ impl AccountRegistry {
         drop(accounts);
         self.sessions.lock().unwrap().remove(&id);
         self.im_passwords.lock().unwrap().remove(&id);
-        // The account is gone either way; a leftover keychain item is harmless
+        // The account is gone either way; a leftover secret is harmless
         // and must not make the UI think the removal failed.
         for key in [id.to_string(), im_key(id), legacy_hx_key(id)] {
             if let Err(e) = self.secrets.delete(&key) {
-                eprintln!("account removed but keychain cleanup failed: {e}");
+                eprintln!("account removed but secret cleanup failed: {e}");
             }
         }
         Ok(())

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { CheckCircle2Icon, Loader2Icon, Trash2Icon } from "lucide-react";
+import { CheckCircle2Icon, Loader2Icon, RotateCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,9 +106,9 @@ function ImServerForm({ settings }: { settings: AppSettings }) {
   async function removeTemplate() {
     try {
       await clear.mutateAsync();
-      toast.success("Đã xoá login template");
+      toast.success("Đã quay về login template mặc định");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Không xoá được template");
+      toast.error(err instanceof Error ? err.message : "Không đổi được template");
     }
   }
 
@@ -165,33 +165,38 @@ function ImServerForm({ settings }: { settings: AppSettings }) {
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs">
             <CheckCircle2Icon className="size-3.5 shrink-0 text-success" aria-hidden />
             <span className="min-w-0 flex-1 truncate">
-              Đã lưu · app key <code className="font-mono">{settings.imTemplate.appKey}</code> · bắt từ{" "}
+              {settings.imTemplate.isDefault ? "Mặc định" : "Đã lưu"} · app key{" "}
+              <code className="font-mono">{settings.imTemplate.appKey}</code> · bắt từ{" "}
               <code className="font-mono">{settings.imTemplate.username}</code>
             </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => void removeTemplate()}
-              disabled={clear.isPending}
-            >
-              <Trash2Icon aria-hidden />
-              Xoá
-            </Button>
+            {!settings.imTemplate.isDefault && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => void removeTemplate()}
+                disabled={clear.isPending}
+              >
+                <RotateCcwIcon aria-hidden />
+                Dùng mặc định
+              </Button>
+            )}
           </div>
         )}
         <Textarea
           id="im-template"
           value={template}
           onChange={(e) => setTemplate(e.target.value)}
-          placeholder={settings.imTemplate ? "Để trống để giữ template đã lưu" : "Dán frame đăng nhập TCP bắt từ máy thật"}
+          placeholder={
+            settings.imTemplate ? "Để trống để giữ template đang dùng; dán template khác để thay" : "Dán frame đăng nhập TCP bắt từ máy thật"
+          }
           spellCheck={false}
           autoComplete="off"
           rows={3}
           className="font-mono text-xs break-all"
         />
         <p className="text-xs text-muted-foreground">
-          Lưu trong Keychain. Khi đăng nhập chat, username trong template được thay bằng IM username của từng account.
+          Lưu trong secrets.json. Khi đăng nhập chat, username trong template được thay bằng IM username của từng account.
         </p>
       </div>
 

@@ -371,7 +371,7 @@ impl Serialize for CommandError {
     }
 }
 
-/// Signed request for one stored account. The sid is read from the keychain here
+/// Signed request for one stored account. The sid is read from the secret store here
 /// and never leaves the backend.
 pub(crate) async fn request_for_account(
     app: &tauri::AppHandle,
@@ -379,7 +379,7 @@ pub(crate) async fn request_for_account(
     build: impl FnOnce(&LitProfile, SignOptions) -> Result<SignedRequest, LitError>,
 ) -> Result<serde_json::Value, CommandError> {
     use tauri::Manager;
-    // The keychain read can block (or prompt), so keep it off the async workers.
+    // The secret read touches the disk, so keep it off the async workers.
     let handle = app.clone();
     let (account, sid) = tauri::async_runtime::spawn_blocking(move || {
         handle.state::<crate::accounts::AccountRegistry>().with_session(account_id)
@@ -462,7 +462,7 @@ pub fn im_credentials(json: &serde_json::Value) -> Option<(String, String)> {
 }
 
 /// The account's own profile; this is the "Đăng nhập" check. The IM username and
-/// password found in it are saved for chat (password in the keychain).
+/// password found in it are saved for chat (password in the secret store).
 /// `UserProfile` has no field for the session token or the IM credentials, so
 /// they cannot leave the backend (see lit_types.rs).
 #[tauri::command]

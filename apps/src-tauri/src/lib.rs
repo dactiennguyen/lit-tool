@@ -3,12 +3,14 @@ mod chat;
 mod hx;
 mod lit;
 mod lit_types;
+mod secrets;
 mod settings;
 mod store;
 
 use tauri::Manager;
 
 use accounts::{AccountRegistry, KeyringStore};
+use secrets::FileSecretStore;
 use settings::SettingsStore;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,9 +19,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
-            let registry = AccountRegistry::open(&dir, Box::new(KeyringStore))?;
-            app.manage(registry);
-            app.manage(SettingsStore::open(&dir, Box::new(KeyringStore))?);
+            // Secrets live in secrets.json; the keychain is only read to migrate old entries.
+            let secrets = std::sync::Arc::new(FileSecretStore::open(&dir, Some(Box::new(KeyringStore)))?);
+            app.manage(AccountRegistry::open(&dir, Box::new(secrets.clone()))?);
+            app.manage(SettingsStore::open(&dir, Box::new(secrets))?);
             app.manage(chat::HxTokens::default());
             Ok(())
         })

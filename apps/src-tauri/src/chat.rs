@@ -144,7 +144,7 @@ enum TokenSource {
 impl Session {
     async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
         let handle = app.clone();
-        // Keychain reads can block (or prompt), so keep them off the async workers.
+        // Secret reads touch the disk (and, once, the old keychain): keep them off the async workers.
         let (settings, template_b64, (username, password)) = tauri::async_runtime::spawn_blocking(move || {
             let settings = handle.state::<SettingsStore>();
             let template = settings.im_template()?;
@@ -153,8 +153,6 @@ impl Session {
         })
         .await
         .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
-        let template_b64 =
-            template_b64.ok_or_else(|| HxError::Invalid("Chưa có login template: nhập trong Cài đặt › Server chat".into()))?;
         let template = hx::with_username(&hx::parse_template(&template_b64)?, &username)?;
         let fingerprint = fingerprint(&template_b64, &username, &password, &settings.im_rest_base);
         Ok(Self {

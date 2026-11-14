@@ -1,7 +1,7 @@
 //! App settings stored as `settings.json` in the app data dir.
 //!
 //! The IM (chat) server is shared by every account: host, port and REST base
-//! are plain settings, while the login template is kept in the OS keychain.
+//! are plain settings, while the login template is kept with the secrets (secrets.json).
 //! Each account's own IM username replaces the one inside the template.
 
 use std::fs;
@@ -19,6 +19,9 @@ const FILE_NAME: &str = "settings.json";
 pub const DEFAULT_API_BASE_URL: &str = "https://www.litatom.com";
 pub const DEFAULT_IM_HOST: &str = "128.1.26.67";
 const TEMPLATE_KEY: &str = "global.im_template";
+/// Login frame captured from the real app (token left empty), used until
+/// another template is saved. Each account's IM username replaces the one inside.
+pub const DEFAULT_IM_TEMPLATE: &str = "CAASQAoUMTEwMjE5MDIyMzIyMjgyNCNsaXQSE2xvdmUxNDc5MTE2MTA0MjYzODEaC2Vhc2Vtb2IuY29tIgZtb2JpbGVAA0rzAQgBEgU0LjUuNCgASiRkNTVmYWNiOS1kZDdhLTQzOTctOTQ5Mi01MWVkMGIzMDgzYWRQAGIOR29vZ2xlUGl4ZWwgNmFqLGFuZHJvaWRfZDU1ZmFjYjktZGQ3YS00Mzk3LTk0OTItNTFlZDBiMzA4M2Fkeg9jb20ubGl0YXRvbS5hcHCCASRhNGE0OTMxMi0zNmE5LTRmNTUtYjg4ZC0zZDQ5NmY4ZjhjZTCKAQR2My4wkgEmeyJ2aWQiOjg1NjE0MiwiY2lkIjo2MjE5NTYsInRva2VuIjoiIn2iARcyNDAzOTM2NjEyOC4xLjI2LjY3NjcxN1gA";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
@@ -71,6 +74,8 @@ pub struct TemplateInfo {
     pub app_key: String,
     /// The account the template was captured from (replaced per account at login).
     pub username: String,
+    /// True while no template of the user's own is saved (the built-in one is used).
+    pub is_default: bool,
 }
 
 /// Settings as sent to the webview.
@@ -112,7 +117,7 @@ pub struct SettingsStore {
     path: PathBuf,
     current: Mutex<AppSettings>,
     secrets: Box<dyn SecretStore>,
-    /// The template read from (or written to) the keychain this run; `None` = not read yet.
+    /// The template read from (or written to) the secret store this run; `None` = not read yet.
     template: Mutex<Option<Option<String>>>,
 }
 
@@ -136,8 +141,8 @@ impl SettingsStore {
         self.current.lock().unwrap().clone()
     }
 
-    /// The shared login template (base64), for the backend only. May block on the keychain.
-    pub fn im_template(&self) -> Result<Option<String>> {
+    /// The saved template, if any. Reads the secret store.
+    fn saved_template(&self) -> Result<Option<String>> {
         let mut cached = self.template.lock().unwrap();
         if let Some(t) = cached.as_ref() {
             return Ok(t.clone());
@@ -147,12 +152,19 @@ impl SettingsStore {
         Ok(t)
     }
 
+    /// The shared login template (base64), for the backend only: the saved one,
+    /// or the built-in default. Reads the secret store.
+    pub fn im_template(&self) -> Result<String> {
+        Ok(self.saved_template()?.unwrap_or_else(|| DEFAULT_IM_TEMPLATE.to_owned()))
+    }
+
     pub fn view(&self) -> Result<SettingsView> {
+        let saved = self.saved_template()?;
+        let is_default = saved.is_none();
         // An unreadable saved template shows as missing, so it can be replaced.
-        let im_template = self.im_template()?.and_then(|b64| hx::parse_template(&b64).ok()).map(|t| TemplateInfo {
-            app_key: t.app_key,
-            username: t.username,
-        });
+        let im_template = hx::parse_template(saved.as_deref().unwrap_or(DEFAULT_IM_TEMPLATE))
+            .ok()
+            .map(|t| TemplateInfo { app_key: t.app_key, username: t.username, is_default });
         Ok(SettingsView { settings: self.get(), im_template })
     }
 
@@ -183,7 +195,7 @@ impl SettingsStore {
             hx::parse_template(t).map_err(invalid)?;
         }
 
-        // Keychain first, then the file: a failed keychain write changes nothing.
+        // Secret first, then settings.json: a failed secret write changes nothing.
         if let Some(t) = template {
             self.secrets.set(TEMPLATE_KEY, &t).map_err(invalid)?;
             *self.template.lock().unwrap() = Some(Some(t));
@@ -194,6 +206,7 @@ impl SettingsStore {
         self.view()
     }
 
+    /// Back to the built-in default template.
     pub fn clear_im_template(&self) -> Result<SettingsView> {
         self.secrets.delete(TEMPLATE_KEY).map_err(invalid)?;
         *self.template.lock().unwrap() = Some(None);
@@ -225,6 +238,14 @@ mod tests {
 
     fn open(dir: &Path) -> SettingsStore {
         SettingsStore::open(dir, Box::new(MemoryStore::default())).unwrap()
+    }
+
+    #[test]
+    fn default_template_is_valid() {
+        let t = hx::parse_template(DEFAULT_IM_TEMPLATE).unwrap();
+        assert_eq!((t.app_key.as_str(), t.username.as_str()), ("1102190223222824#lit", "love147911610426381"));
+        let other = hx::with_username(&t, "love_200").unwrap();
+        hx::build_login_frame(&other, "tok").unwrap();
     }
 
     #[test]
@@ -263,23 +284,28 @@ mod tests {
     }
 
     #[test]
-    fn template_lives_in_the_keychain_and_only_its_identity_is_shown() {
+    fn template_lives_in_the_secret_store_and_only_its_identity_is_shown() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(dir.path());
-        assert_eq!(store.view().unwrap().im_template, None);
+        // Built-in default until one is saved.
+        let default = store.view().unwrap().im_template.unwrap();
+        assert!(default.is_default);
+        assert_eq!(default.app_key, "1102190223222824#lit");
+        assert_eq!(store.im_template().unwrap(), DEFAULT_IM_TEMPLATE);
         assert!(store.update(SettingsPatch { im_template_b64: Some("bad!".into()), ..Default::default() }).is_err());
 
         let view = store.update(SettingsPatch { im_template_b64: Some(format!(" {TEMPLATE} ")), ..Default::default() }).unwrap();
-        assert_eq!(view.im_template, Some(TemplateInfo { app_key: "org1#app1".into(), username: "love_100".into() }));
-        assert_eq!(store.im_template().unwrap().as_deref(), Some(TEMPLATE));
+        assert_eq!(view.im_template, Some(TemplateInfo { app_key: "org1#app1".into(), username: "love_100".into(), is_default: false }));
+        assert_eq!(store.im_template().unwrap(), TEMPLATE);
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains(TEMPLATE), "{json}");
         assert!(!fs::read_to_string(dir.path().join(FILE_NAME)).unwrap().contains(TEMPLATE));
 
-        // Blank keeps it; clearing removes it.
+        // Blank keeps it; clearing goes back to the default.
         store.update(SettingsPatch { im_template_b64: Some(" ".into()), ..Default::default() }).unwrap();
-        assert!(store.im_template().unwrap().is_some());
-        assert_eq!(store.clear_im_template().unwrap().im_template, None);
+        assert_eq!(store.im_template().unwrap(), TEMPLATE);
+        assert!(store.clear_im_template().unwrap().im_template.unwrap().is_default);
+        assert_eq!(store.im_template().unwrap(), DEFAULT_IM_TEMPLATE);
     }
 
     #[test]
