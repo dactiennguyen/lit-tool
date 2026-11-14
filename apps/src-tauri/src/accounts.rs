@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
+use crate::hx::{self, HxSecret};
 use crate::store::{self, Loaded, now_ms};
 
 const KEYRING_SERVICE: &str = "sky-manager.session";
@@ -55,6 +56,55 @@ pub struct Account {
     pub created_at: u64,
     /// When the sid was last written to the credential store (ms since epoch).
     pub session_saved_at: Option<u64>,
+    /// IM (Hyphenate) login settings; the secrets live in the keychain.
+    #[serde(default)]
+    pub hx: Option<HxConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HxConfig {
+    pub host: String,
+    pub port: u16,
+    pub rest_base: Option<String>,
+    /// Read from the login template, shown in the UI.
+    pub app_key: String,
+    pub username: String,
+    /// "access_token" or "password": which secret the next login will use.
+    pub auth: String,
+}
+
+/// Blank secret fields keep what is already stored.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HxInput {
+    pub host: String,
+    pub port: Option<u16>,
+    pub rest_base: Option<String>,
+    pub template_b64: Option<String>,
+    pub password: Option<String>,
+    pub access_token: Option<String>,
+}
+
+fn hx_key(id: Uuid) -> String {
+    format!("{id}.hx")
+}
+
+fn non_blank(v: Option<String>) -> Option<String> {
+    v.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+fn clean_hx_secret(v: Option<String>, name: &str) -> Result<Option<String>> {
+    match non_blank(v) {
+        Some(s) if s.len() > 4096 || s.chars().any(char::is_control) => {
+            Err(AccountError::Invalid(format!("{name} không hợp lệ")))
+        }
+        other => Ok(other),
+    }
+}
+
+fn hx_invalid(e: hx::HxError) -> AccountError {
+    AccountError::Invalid(e.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -267,6 +317,7 @@ impl AccountRegistry {
             dfpid,
             created_at: now,
             session_saved_at: Some(now),
+            hx: None,
         };
         let key = account.id.to_string();
         self.secrets.set(&key, &sid)?;
@@ -337,6 +388,84 @@ impl AccountRegistry {
         Ok((account, sid))
     }
 
+    /// Save IM login settings. Metadata is written first and rolled back if the
+    /// keychain write fails, like `update`.
+    pub fn set_hx(&self, id: Uuid, input: HxInput) -> Result<Account> {
+        let host = hx::validate_host(&input.host).map_err(hx_invalid)?;
+        let port = input.port.unwrap_or(hx::DEFAULT_IM_PORT);
+        if port == 0 {
+            return Err(AccountError::Invalid("Port không hợp lệ".into()));
+        }
+        let rest_base = non_blank(input.rest_base).map(|r| hx::easemob_origin(&r)).transpose().map_err(hx_invalid)?;
+        let password = clean_hx_secret(input.password, "hxPwd")?;
+        let access_token = clean_hx_secret(input.access_token, "Access token")?;
+
+        let key = hx_key(id);
+        // An unreadable old entry is simply replaced.
+        let old: HxSecret =
+            self.secrets.get(&key)?.and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
+        let template_b64 = non_blank(input.template_b64).unwrap_or(old.template_b64);
+        if template_b64.is_empty() {
+            return Err(AccountError::Invalid("Cần login template (base64)".into()));
+        }
+        let template = hx::parse_template(&template_b64).map_err(hx_invalid)?;
+        let secret = HxSecret {
+            template_b64: template_b64.trim().to_owned(),
+            password: password.or(old.password),
+            access_token: access_token.or(old.access_token),
+        };
+        if secret.password.is_none() && secret.access_token.is_none() {
+            return Err(AccountError::Invalid("Cần hxPwd hoặc access token".into()));
+        }
+        let config = HxConfig {
+            host,
+            port,
+            rest_base,
+            app_key: template.app_key,
+            username: template.username,
+            auth: if secret.access_token.is_some() { "access_token" } else { "password" }.into(),
+        };
+
+        let mut accounts = self.accounts.lock().unwrap();
+        let mut next = accounts.clone();
+        let account = next.iter_mut().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        account.hx = Some(config);
+        let updated = account.clone();
+        self.persist(&next)?;
+        let json = serde_json::to_string(&secret).map_err(|e| AccountError::Invalid(e.to_string()))?;
+        if let Err(e) = self.secrets.set(&key, &json) {
+            let _ = self.persist(&accounts);
+            return Err(e);
+        }
+        *accounts = next;
+        Ok(updated)
+    }
+
+    pub fn clear_hx(&self, id: Uuid) -> Result<Account> {
+        let mut accounts = self.accounts.lock().unwrap();
+        let mut next = accounts.clone();
+        let account = next.iter_mut().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        account.hx = None;
+        let updated = account.clone();
+        self.persist(&next)?;
+        *accounts = next;
+        drop(accounts);
+        if let Err(e) = self.secrets.delete(&hx_key(id)) {
+            eprintln!("chat settings cleared but keychain cleanup failed: {e}");
+        }
+        Ok(updated)
+    }
+
+    /// IM settings plus secrets, for the backend only. May block on the keychain.
+    pub fn hx_material(&self, id: Uuid) -> Result<(HxConfig, HxSecret)> {
+        let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let config = account.hx.ok_or_else(|| AccountError::Invalid("Account chưa cấu hình chat".into()))?;
+        let missing = || AccountError::Invalid("Thiếu thông tin chat trong Keychain, hãy nhập lại".into());
+        let raw = self.secrets.get(&hx_key(id))?.ok_or_else(missing)?;
+        let secret = serde_json::from_str(&raw).map_err(|_| missing())?;
+        Ok((config, secret))
+    }
+
     pub fn remove(&self, id: Uuid) -> Result<()> {
         let mut accounts = self.accounts.lock().unwrap();
         let next: Vec<Account> = accounts.iter().filter(|a| a.id != id).cloned().collect();
@@ -349,8 +478,10 @@ impl AccountRegistry {
         self.sessions.lock().unwrap().remove(&id);
         // The account is gone either way; a leftover keychain item is harmless
         // and must not make the UI think the removal failed.
-        if let Err(e) = self.secrets.delete(&id.to_string()) {
-            eprintln!("account removed but keychain cleanup failed: {e}");
+        for key in [id.to_string(), hx_key(id)] {
+            if let Err(e) = self.secrets.delete(&key) {
+                eprintln!("account removed but keychain cleanup failed: {e}");
+            }
         }
         Ok(())
     }
@@ -382,6 +513,16 @@ pub fn accounts_update(registry: State<'_>, id: Uuid, patch: AccountPatch) -> Re
 #[tauri::command]
 pub fn accounts_recovered_backup(registry: State<'_>) -> Option<String> {
     registry.recovered_backup()
+}
+
+#[tauri::command(async)]
+pub fn accounts_set_hx(registry: State<'_>, id: Uuid, input: HxInput) -> Result<Account> {
+    registry.set_hx(id, input)
+}
+
+#[tauri::command(async)]
+pub fn accounts_clear_hx(registry: State<'_>, id: Uuid) -> Result<Account> {
+    registry.clear_hx(id)
 }
 
 #[tauri::command(async)]
@@ -504,6 +645,66 @@ mod tests {
         let backup = reg.recovered_backup().expect("backup path");
         assert_eq!(fs::read(&backup).unwrap(), b"{not json");
         assert!(!dir.path().join(FILE_NAME).exists());
+    }
+
+    const HX_TEMPLATE: &str = "EiIKCW9yZzEjYXBwMRIIbG92ZV8xMDAaC2Vhc2Vtb2IuY29tQANKMwgFkgEieyJ0b2tlbiI6IiIsInZpZCI6InYxIiwiY2lkIjoiYzEifaAB////////////AWAH";
+
+    fn hx_input() -> HxInput {
+        HxInput {
+            host: " 127.0.0.1 ".into(),
+            port: None,
+            rest_base: Some("".into()),
+            template_b64: Some(HX_TEMPLATE.into()),
+            password: Some("hx-pw".into()),
+            access_token: None,
+        }
+    }
+
+    #[test]
+    fn hx_settings_keep_secrets_in_keychain() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, store) = registry(dir.path());
+        let acc = reg.add(input("dev-1")).unwrap();
+        assert!(reg.hx_material(acc.id).is_err());
+
+        let updated = reg.set_hx(acc.id, hx_input()).unwrap();
+        let cfg = updated.hx.unwrap();
+        assert_eq!((cfg.host.as_str(), cfg.port, cfg.username.as_str(), cfg.auth.as_str()), ("127.0.0.1", 6717, "love_100", "password"));
+        let raw = fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+        assert!(!raw.contains("hx-pw") && !raw.contains(HX_TEMPLATE));
+
+        // Blank fields keep stored secrets; a token switches the auth source.
+        let patch = HxInput { template_b64: None, password: None, access_token: Some("tok".into()), ..hx_input() };
+        assert_eq!(reg.set_hx(acc.id, patch).unwrap().hx.unwrap().auth, "access_token");
+        let (_, secret) = reg.hx_material(acc.id).unwrap();
+        assert_eq!((secret.password.as_deref(), secret.access_token.as_deref()), (Some("hx-pw"), Some("tok")));
+
+        reg.clear_hx(acc.id).unwrap();
+        assert!(reg.list()[0].hx.is_none());
+        assert!(!store.0.lock().unwrap().contains_key(&hx_key(acc.id)));
+    }
+
+    #[test]
+    fn hx_settings_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(dir.path());
+        let acc = reg.add(input("dev-1")).unwrap();
+        let cases = [
+            HxInput { template_b64: None, ..hx_input() },
+            HxInput { template_b64: Some("bad!".into()), ..hx_input() },
+            HxInput { password: None, ..hx_input() },
+            HxInput { host: "a b".into(), ..hx_input() },
+            HxInput { rest_base: Some("https://evil.com".into()), ..hx_input() },
+            HxInput { port: Some(0), ..hx_input() },
+        ];
+        for case in cases {
+            assert!(matches!(reg.set_hx(acc.id, case), Err(AccountError::Invalid(_))));
+        }
+        assert!(reg.list()[0].hx.is_none());
+
+        reg.set_hx(acc.id, hx_input()).unwrap();
+        reg.remove(acc.id).unwrap();
+        assert!(reg.hx_material(acc.id).is_err());
     }
 
     #[test]

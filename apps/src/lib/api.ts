@@ -10,6 +10,36 @@ export interface Account {
   dfpid: string | null;
   createdAt: number;
   sessionSavedAt: number | null;
+  hx: HxConfig | null;
+}
+
+export interface HxConfig {
+  host: string;
+  port: number;
+  restBase: string | null;
+  appKey: string;
+  username: string;
+  auth: "access_token" | "password";
+}
+
+/** Blank secret fields keep what is stored. */
+export interface HxInput {
+  host: string;
+  port: number | null;
+  restBase: string | null;
+  templateB64: string | null;
+  password: string | null;
+  accessToken: string | null;
+}
+
+export interface HxCheckResult {
+  username: string;
+  appKey: string;
+  host: string;
+  port: number;
+  tokenSource: "access_token" | "password";
+  tokenExpiresIn: number | null;
+  steps: { step: "login" | "followup"; type: string; code: string; accepted: boolean }[];
 }
 
 export interface NewAccount {
@@ -57,6 +87,12 @@ export const api = {
     update: (id: string, patch: AccountPatch) => call<Account>("accounts_update", { id, patch }),
     remove: (id: string) => call<void>("accounts_remove", { id }),
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
+    setHx: (id: string, input: HxInput) => call<Account>("accounts_set_hx", { id, input }),
+    clearHx: (id: string) => call<Account>("accounts_clear_hx", { id }),
+  },
+  hx: {
+    /** Token + TCP login + followup, then disconnect. Sends no message. */
+    checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
   },
   lit: {
     /** Raw `account/account_info` JSON for a stored account. */

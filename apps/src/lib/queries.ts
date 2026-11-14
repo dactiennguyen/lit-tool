@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Account, type AccountPatch, type AppSettings, type NewAccount } from "./api";
+import { api, type Account, type AccountPatch, type AppSettings, type HxInput, type NewAccount } from "./api";
 
 export const queryKeys = {
   accounts: ["accounts"] as const,
@@ -72,3 +72,10 @@ export const useUpdateAccount = () =>
   useAccountsMutation(({ id, patch }: { id: string; patch: AccountPatch }) => api.accounts.update(id, patch));
 
 export const useRemoveAccount = () => useAccountsMutation((account: Account) => api.accounts.remove(account.id));
+
+export const useSetHx = () => useAccountsMutation(({ id, input }: { id: string; input: HxInput }) => api.accounts.setHx(id, input));
+
+export const useClearHx = () => useAccountsMutation((id: string) => api.accounts.clearHx(id));
+
+/** An action, not cached data: each run opens a fresh TCP login. */
+export const useCheckHxConnection = () => useMutation({ mutationFn: (accountId: string) => api.hx.checkConnection(accountId) });

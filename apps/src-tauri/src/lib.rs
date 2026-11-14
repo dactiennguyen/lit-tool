@@ -1,4 +1,5 @@
 mod accounts;
+mod hx;
 mod lit;
 mod settings;
 mod store;
@@ -24,6 +25,9 @@ pub fn run() {
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,
+            accounts::accounts_set_hx,
+            accounts::accounts_clear_hx,
+            hx::hx_check_connection,
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,

@@ -253,7 +253,7 @@ pub fn decode_response(
 }
 
 /// One client for the whole app, so connections and TLS sessions are reused.
-fn http_client() -> Result<&'static reqwest::Client, LitError> {
+pub(crate) fn http_client() -> Result<&'static reqwest::Client, LitError> {
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
