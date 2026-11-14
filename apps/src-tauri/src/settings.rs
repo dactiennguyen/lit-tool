@@ -1,20 +1,16 @@
-//! App settings stored as `settings.json` in the app data dir.
+//! App settings, in the `settings` table of sky.db (see db.rs).
 //!
 //! The IM (chat) server is shared by every account: host, port and REST base
-//! are plain settings, while the login template is kept with the secrets (secrets.json).
+//! are plain settings, while a saved login template is kept in the `secrets` table.
 //! Each account's own IM username replaces the one inside the template.
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::accounts::SecretStore;
+use crate::db::{self, Db, DbError, put_secret};
 use crate::hx;
-use crate::store::{self, Loaded};
 
-const FILE_NAME: &str = "settings.json";
 /// Same default as `LIT_BASE_URL` in scripts/src/core/constants.ts.
 pub const DEFAULT_API_BASE_URL: &str = "https://www.litatom.com";
 pub const DEFAULT_IM_HOST: &str = "128.1.26.67";
@@ -27,8 +23,14 @@ pub const DEFAULT_IM_TEMPLATE: &str = "CAASQAoUMTEwMjE5MDIyMzIyMjgyNCNsaXQSE2xvd
 pub enum SettingsError {
     #[error("{0}")]
     Invalid(String),
-    #[error("Lỗi đọc/ghi cài đặt: {0}")]
-    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Db(#[from] DbError),
+}
+
+impl From<rusqlite::Error> for SettingsError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e.into())
+    }
 }
 
 impl Serialize for SettingsError {
@@ -43,7 +45,7 @@ fn invalid(e: impl std::fmt::Display) -> SettingsError {
     SettingsError::Invalid(e.to_string())
 }
 
-/// What `settings.json` holds. Missing fields take their defaults.
+/// The stored settings. Missing fields take their defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -114,27 +116,16 @@ pub fn normalize_base_url(raw: &str) -> Result<String> {
 }
 
 pub struct SettingsStore {
-    path: PathBuf,
+    db: Arc<Db>,
     current: Mutex<AppSettings>,
-    secrets: Box<dyn SecretStore>,
-    /// The template read from (or written to) the secret store this run; `None` = not read yet.
+    /// The saved template read (or written) this run; `None` = not read yet.
     template: Mutex<Option<Option<String>>>,
 }
 
 impl SettingsStore {
-    pub fn open(dir: &Path, secrets: Box<dyn SecretStore>) -> Result<Self> {
-        fs::create_dir_all(dir)?;
-        let path = dir.join(FILE_NAME);
-        // A corrupt settings file is moved aside and defaults are used.
-        let current = match store::read_json_or_quarantine(&path)? {
-            Loaded::Ok(settings) => settings,
-            Loaded::Missing => AppSettings::default(),
-            Loaded::Recovered(backup) => {
-                eprintln!("settings.json was corrupt, moved to {}", backup.display());
-                AppSettings::default()
-            }
-        };
-        Ok(Self { path, current: Mutex::new(current), secrets, template: Mutex::new(None) })
+    pub fn open(db: Arc<Db>) -> Result<Self> {
+        let current = db.read(db::load_settings)?;
+        Ok(Self { db, current: Mutex::new(current), template: Mutex::new(None) })
     }
 
     pub fn get(&self) -> AppSettings {
@@ -147,7 +138,7 @@ impl SettingsStore {
         if let Some(t) = cached.as_ref() {
             return Ok(t.clone());
         }
-        let t = self.secrets.get(TEMPLATE_KEY).map_err(invalid)?;
+        let t = self.db.secret(TEMPLATE_KEY)?;
         *cached = Some(t.clone());
         Ok(t)
     }
@@ -195,12 +186,17 @@ impl SettingsStore {
             hx::parse_template(t).map_err(invalid)?;
         }
 
-        // Secret first, then settings.json: a failed secret write changes nothing.
+        // Settings and template together, or neither.
+        self.db.write(|tx| -> Result<()> {
+            db::save_settings(tx, &next)?;
+            if let Some(t) = &template {
+                put_secret(tx, TEMPLATE_KEY, Some(t))?;
+            }
+            Ok(())
+        })?;
         if let Some(t) = template {
-            self.secrets.set(TEMPLATE_KEY, &t).map_err(invalid)?;
             *self.template.lock().unwrap() = Some(Some(t));
         }
-        store::write_json_atomic(&self.path, &next)?;
         *current = next;
         drop(current);
         self.view()
@@ -208,7 +204,7 @@ impl SettingsStore {
 
     /// Back to the built-in default template.
     pub fn clear_im_template(&self) -> Result<SettingsView> {
-        self.secrets.delete(TEMPLATE_KEY).map_err(invalid)?;
+        self.db.write(|tx| put_secret(tx, TEMPLATE_KEY, None))?;
         *self.template.lock().unwrap() = Some(None);
         self.view()
     }
@@ -232,12 +228,11 @@ pub fn settings_clear_im_template(store: tauri::State<'_, SettingsStore>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accounts::MemoryStore;
 
     const TEMPLATE: &str = "EiIKCW9yZzEjYXBwMRIIbG92ZV8xMDAaC2Vhc2Vtb2IuY29tQANKMwgFkgEieyJ0b2tlbiI6IiIsInZpZCI6InYxIiwiY2lkIjoiYzEifaAB////////////AWAH";
 
-    fn open(dir: &Path) -> SettingsStore {
-        SettingsStore::open(dir, Box::new(MemoryStore::default())).unwrap()
+    fn open(dir: &std::path::Path) -> SettingsStore {
+        SettingsStore::open(Arc::new(Db::open(dir, None).unwrap())).unwrap()
     }
 
     #[test]
@@ -299,7 +294,6 @@ mod tests {
         assert_eq!(store.im_template().unwrap(), TEMPLATE);
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains(TEMPLATE), "{json}");
-        assert!(!fs::read_to_string(dir.path().join(FILE_NAME)).unwrap().contains(TEMPLATE));
 
         // Blank keeps it; clearing goes back to the default.
         store.update(SettingsPatch { im_template_b64: Some(" ".into()), ..Default::default() }).unwrap();
@@ -309,11 +303,9 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_or_partial_file_falls_back_to_defaults() {
+    fn partial_settings_fall_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(FILE_NAME), b"{oops").unwrap();
-        assert_eq!(open(dir.path()).get(), AppSettings::default());
-        fs::write(dir.path().join(FILE_NAME), br#"{"apiBaseUrl":"https://x.com"}"#).unwrap();
+        std::fs::write(dir.path().join("settings.json"), br#"{"apiBaseUrl":"https://x.com"}"#).unwrap();
         let s = open(dir.path()).get();
         assert_eq!((s.api_base_url.as_str(), s.im_host.as_str()), ("https://x.com", DEFAULT_IM_HOST));
     }

@@ -1,22 +1,19 @@
 //! Account registry for Sky Manager.
 //!
-//! Non-secret metadata lives in `accounts.json` inside the app data dir.
-//! The session token (`sid`) is kept in the secret store (secrets.json, see
-//! secrets.rs) and is never sent back to the webview. So is the IM password (hxPwd), which is
+//! Accounts live in the `accounts` table of sky.db (see db.rs). The session
+//! token (`sid`) is in the `secrets` table and is never sent back to the webview. So is the IM password (hxPwd), which is
 //! taken from the account's own profile when it logs in.
 
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
-use crate::store::{self, Loaded, now_ms};
+use crate::db::{self, Db, DbError, put_secret};
+use crate::store::now_ms;
 
 const KEYRING_SERVICE: &str = "sky-manager.session";
-const FILE_NAME: &str = "accounts.json";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccountError {
@@ -28,6 +25,8 @@ pub enum AccountError {
     Duplicate,
     #[error("Lỗi đọc/ghi dữ liệu: {0}")]
     Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Db(#[from] DbError),
     #[error("Không truy cập được kho bảo mật của hệ điều hành: {0}")]
     Secret(String),
 }
@@ -173,14 +172,26 @@ fn clean_sid(v: &str) -> Result<String> {
 
 // ---------- secret storage ----------
 
+/// Read access to where secrets were kept before sky.db: the OS keychain,
+/// read once per key to migrate (see db.rs).
 pub trait SecretStore: Send + Sync {
     fn get(&self, key: &str) -> Result<Option<String>>;
-    fn set(&self, key: &str, secret: &str) -> Result<()>;
-    fn delete(&self, key: &str) -> Result<()>;
+}
+
+impl From<rusqlite::Error> for AccountError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e.into())
+    }
+}
+
+impl<T: SecretStore + ?Sized> SecretStore for Arc<T> {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        (**self).get(key)
+    }
 }
 
 /// The OS keychain, where earlier versions kept secrets. Only read now, to
-/// migrate entries into secrets.json (see secrets.rs).
+/// migrate entries into sky.db (see db.rs).
 pub struct KeyringStore;
 
 impl KeyringStore {
@@ -197,19 +208,6 @@ impl SecretStore for KeyringStore {
             Err(e) => Err(AccountError::Secret(e.to_string())),
         }
     }
-
-    fn set(&self, key: &str, secret: &str) -> Result<()> {
-        Self::entry(key)?
-            .set_password(secret)
-            .map_err(|e| AccountError::Secret(e.to_string()))
-    }
-
-    fn delete(&self, key: &str) -> Result<()> {
-        match Self::entry(key)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(AccountError::Secret(e.to_string())),
-        }
-    }
 }
 
 /// In-memory store used by tests.
@@ -218,52 +216,45 @@ impl SecretStore for KeyringStore {
 pub struct MemoryStore(pub Mutex<HashMap<String, String>>);
 
 #[cfg(test)]
-impl SecretStore for MemoryStore {
-    fn get(&self, key: &str) -> Result<Option<String>> {
-        Ok(self.0.lock().unwrap().get(key).cloned())
-    }
-    fn set(&self, key: &str, secret: &str) -> Result<()> {
+impl MemoryStore {
+    pub fn set(&self, key: &str, secret: &str) -> Result<()> {
         self.0.lock().unwrap().insert(key.to_owned(), secret.to_owned());
         Ok(())
     }
-    fn delete(&self, key: &str) -> Result<()> {
-        self.0.lock().unwrap().remove(key);
-        Ok(())
+}
+
+#[cfg(test)]
+impl SecretStore for MemoryStore {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.0.lock().unwrap().get(key).cloned())
     }
 }
 
 // ---------- registry ----------
 
 pub struct AccountRegistry {
-    path: PathBuf,
+    db: Arc<Db>,
+    /// Same rows as the `accounts` table, kept in memory for `list()`.
     accounts: Mutex<Vec<Account>>,
-    secrets: Box<dyn SecretStore>,
-    /// Set when accounts.json was unreadable and moved aside on startup.
-    recovered_backup: Option<PathBuf>,
-    /// sids already read from (or written to) the secret store this run, so each
-    /// API call doesn't read it again.
+    /// sids already read (or written) this run, so each API call doesn't query again.
     sessions: Mutex<HashMap<Uuid, String>>,
     /// Same for IM passwords.
     im_passwords: Mutex<HashMap<Uuid, String>>,
 }
 
+fn sid_key(id: Uuid) -> String {
+    id.to_string()
+}
+
 impl AccountRegistry {
-    pub fn open(dir: &Path, secrets: Box<dyn SecretStore>) -> Result<Self> {
-        fs::create_dir_all(dir)?;
-        let path = dir.join(FILE_NAME);
-        let (accounts, recovered_backup) = match store::read_json_or_quarantine(&path)? {
-            Loaded::Ok(accounts) => (accounts, None),
-            Loaded::Missing => (Vec::new(), None),
-            Loaded::Recovered(backup) => {
-                eprintln!("accounts.json was corrupt, moved to {}", backup.display());
-                (Vec::new(), Some(backup))
-            }
-        };
-        Ok(Self { path, accounts: Mutex::new(accounts), secrets, recovered_backup, sessions: Mutex::default(), im_passwords: Mutex::default() })
+    pub fn open(db: Arc<Db>) -> Result<Self> {
+        let accounts = db.read(db::load_accounts)?;
+        Ok(Self { db, accounts: Mutex::new(accounts), sessions: Mutex::default(), im_passwords: Mutex::default() })
     }
 
+    /// Where an unreadable database was moved on startup, if that happened.
     pub fn recovered_backup(&self) -> Option<String> {
-        self.recovered_backup.as_ref().map(|p| p.display().to_string())
+        self.db.recovered_backup().map(|p| p.display().to_string())
     }
 
     pub fn list(&self) -> Vec<Account> {
@@ -296,24 +287,21 @@ impl AccountRegistry {
             session_saved_at: Some(now),
             im: None,
         };
-        let key = account.id.to_string();
-        self.secrets.set(&key, &sid)?;
-
-        let mut next = accounts.clone();
-        next.push(account.clone());
-        if let Err(e) = self.persist(&next) {
-            let _ = self.secrets.delete(&key);
-            return Err(e);
-        }
-        *accounts = next;
+        // Account and sid together, or neither.
+        self.db.write(|tx| -> Result<()> {
+            db::insert_account(tx, &account)?;
+            put_secret(tx, &sid_key(account.id), Some(&sid))?;
+            Ok(())
+        })?;
+        accounts.push(account.clone());
         self.sessions.lock().unwrap().insert(account.id, sid);
         Ok(account)
     }
 
     pub fn update(&self, id: Uuid, patch: AccountPatch) -> Result<Account> {
         let mut accounts = self.accounts.lock().unwrap();
-        let mut next = accounts.clone();
-        let account = next.iter_mut().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let index = accounts.iter().position(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let mut account = accounts[index].clone();
 
         if let Some(label) = patch.label {
             account.label = clean_label(&label)?;
@@ -334,20 +322,19 @@ impl AccountRegistry {
         if sid.is_some() {
             account.session_saved_at = Some(now_ms());
         }
-        let updated = account.clone();
 
-        // Metadata first: if that fails nothing has changed. If the secret
-        // write then fails, roll the metadata back so the old sid stays valid.
-        self.persist(&next)?;
-        if let Some(sid) = sid {
-            if let Err(e) = self.secrets.set(&id.to_string(), &sid) {
-                let _ = self.persist(&accounts);
-                return Err(e);
+        self.db.write(|tx| -> Result<()> {
+            db::update_account(tx, &account)?;
+            if let Some(sid) = &sid {
+                put_secret(tx, &sid_key(id), Some(sid))?;
             }
+            Ok(())
+        })?;
+        accounts[index] = account.clone();
+        if let Some(sid) = sid {
             self.sessions.lock().unwrap().insert(id, sid);
         }
-        *accounts = next;
-        Ok(updated)
+        Ok(account)
     }
 
     /// Account plus its sid, for signing requests inside the backend only.
@@ -358,8 +345,8 @@ impl AccountRegistry {
         }
         // Touches the disk (and once the old keychain): callers run this off the async runtime.
         let sid = self
-            .secrets
-            .get(&id.to_string())?
+            .db
+            .secret(&sid_key(id))?
             .ok_or_else(|| AccountError::Invalid("Account chưa có session đã lưu, hãy nhập lại sid".into()))?;
         self.sessions.lock().unwrap().insert(id, sid.clone());
         Ok((account, sid))
@@ -374,28 +361,26 @@ impl AccountRegistry {
         if password.is_empty() || password.len() > 4096 || password.chars().any(char::is_control) {
             return Err(AccountError::Invalid("Mật khẩu chat trong hồ sơ không hợp lệ".into()));
         }
-        let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
-        let same_user = account.im.as_ref().is_some_and(|im| im.username == username);
+        let current = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let same_user = current.im.as_ref().is_some_and(|im| im.username == username);
         if same_user && self.im_password(id).ok().as_deref() == Some(password) {
             return Ok(None);
         }
 
-        // Secret first: metadata only claims credentials that are really stored.
-        self.secrets.set(&im_key(id), password)?;
-        self.im_passwords.lock().unwrap().insert(id, password.to_owned());
         let mut accounts = self.accounts.lock().unwrap();
-        let mut next = accounts.clone();
-        let account = next.iter_mut().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let index = accounts.iter().position(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let mut account = accounts[index].clone();
         account.im = Some(ImIdentity { username: username.to_owned(), saved_at: now_ms() });
-        let updated = account.clone();
-        self.persist(&next)?;
-        *accounts = next;
-        drop(accounts);
-        // Per-account IM settings of earlier versions are superseded: best-effort cleanup.
-        if let Err(e) = self.secrets.delete(&legacy_hx_key(id)) {
-            eprintln!("legacy chat settings not cleaned up: {e}");
-        }
-        Ok(Some(updated))
+        self.db.write(|tx| -> Result<()> {
+            db::update_account(tx, &account)?;
+            put_secret(tx, &im_key(id), Some(password))?;
+            // Per-account IM settings of earlier versions are superseded.
+            put_secret(tx, &legacy_hx_key(id), None)?;
+            Ok(())
+        })?;
+        accounts[index] = account.clone();
+        self.im_passwords.lock().unwrap().insert(id, password.to_owned());
+        Ok(Some(account))
     }
 
     fn im_password(&self, id: Uuid) -> Result<String> {
@@ -403,12 +388,12 @@ impl AccountRegistry {
             return Ok(pw.clone());
         }
         let missing = || AccountError::Invalid("Chưa có mật khẩu chat, hãy đăng nhập lại account".into());
-        let pw = self.secrets.get(&im_key(id))?.ok_or_else(missing)?;
+        let pw = self.db.secret(&im_key(id))?.ok_or_else(missing)?;
         self.im_passwords.lock().unwrap().insert(id, pw.clone());
         Ok(pw)
     }
 
-    /// IM username and password, for the backend only. Reads the secret store.
+    /// IM username and password, for the backend only.
     pub fn im_material(&self, id: Uuid) -> Result<(String, String)> {
         let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
         let im = account
@@ -417,29 +402,22 @@ impl AccountRegistry {
         Ok((im.username, self.im_password(id)?))
     }
 
+    /// Removes the account and its secrets in one transaction.
     pub fn remove(&self, id: Uuid) -> Result<()> {
         let mut accounts = self.accounts.lock().unwrap();
-        let next: Vec<Account> = accounts.iter().filter(|a| a.id != id).cloned().collect();
-        if next.len() == accounts.len() {
-            return Err(AccountError::NotFound);
-        }
-        self.persist(&next)?;
-        *accounts = next;
-        drop(accounts);
+        self.db.write(|tx| -> Result<()> {
+            if !db::delete_account(tx, id)? {
+                return Err(AccountError::NotFound);
+            }
+            for key in [sid_key(id), im_key(id), legacy_hx_key(id)] {
+                put_secret(tx, &key, None)?;
+            }
+            Ok(())
+        })?;
+        accounts.retain(|a| a.id != id);
         self.sessions.lock().unwrap().remove(&id);
         self.im_passwords.lock().unwrap().remove(&id);
-        // The account is gone either way; a leftover secret is harmless
-        // and must not make the UI think the removal failed.
-        for key in [id.to_string(), im_key(id), legacy_hx_key(id)] {
-            if let Err(e) = self.secrets.delete(&key) {
-                eprintln!("account removed but secret cleanup failed: {e}");
-            }
-        }
         Ok(())
-    }
-
-    fn persist(&self, accounts: &[Account]) -> Result<()> {
-        Ok(store::write_json_atomic(&self.path, accounts)?)
     }
 }
 
@@ -475,14 +453,6 @@ pub fn accounts_remove(registry: State<'_>, id: Uuid) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-
-    struct Shared(Arc<MemoryStore>);
-    impl SecretStore for Shared {
-        fn get(&self, k: &str) -> Result<Option<String>> { self.0.get(k) }
-        fn set(&self, k: &str, s: &str) -> Result<()> { self.0.set(k, s) }
-        fn delete(&self, k: &str) -> Result<()> { self.0.delete(k) }
-    }
 
     fn input(device: &str) -> NewAccount {
         NewAccount {
@@ -496,32 +466,46 @@ mod tests {
         }
     }
 
-    fn registry(dir: &Path) -> (AccountRegistry, Arc<MemoryStore>) {
-        let store = Arc::new(MemoryStore::default());
-        (AccountRegistry::open(dir, Box::new(Shared(store.clone()))).unwrap(), store)
+    fn registry(dir: &std::path::Path) -> (AccountRegistry, Arc<Db>) {
+        let db = db::open_temp(dir);
+        (AccountRegistry::open(db.clone()).unwrap(), db)
+    }
+
+    fn secret(db: &Db, key: &str) -> Option<String> {
+        db.secret(key).unwrap()
     }
 
     #[test]
-    fn add_persists_metadata_and_keeps_sid_out_of_file() {
+    fn add_persists_the_account_and_its_sid_together() {
         let dir = tempfile::tempdir().unwrap();
-        let (reg, store) = registry(dir.path());
+        let (reg, db) = registry(dir.path());
         let acc = reg.add(input("dev-1")).unwrap();
         assert_eq!(acc.label, "Acc 1");
         assert_eq!(acc.dfpid.as_deref(), Some("DFP1"));
         assert_eq!(acc.user_id, None);
-
-        let raw = fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
-        assert!(!raw.contains("secret-sid"));
-        assert_eq!(store.0.lock().unwrap().get(&acc.id.to_string()).unwrap(), "secret-sid");
+        assert_eq!(secret(&db, &acc.id.to_string()).as_deref(), Some("secret-sid"));
+        drop((reg, db));
 
         let (reopened, _) = registry(dir.path());
-        assert_eq!(reopened.list(), vec![acc]);
+        assert_eq!(reopened.list(), vec![acc.clone()]);
+        assert_eq!(reopened.with_session(acc.id).unwrap().1, "secret-sid");
+    }
+
+    #[test]
+    fn keeps_the_order_accounts_were_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _db) = registry(dir.path());
+        let ids: Vec<_> = ["d1", "d2", "d3"].map(|d| reg.add(input(d)).unwrap().id).into();
+        reg.remove(ids[1]).unwrap();
+        let d4 = reg.add(input("d4")).unwrap().id;
+        let (reopened, _) = registry(dir.path());
+        assert_eq!(reopened.list().iter().map(|a| a.id).collect::<Vec<_>>(), [ids[0], ids[2], d4]);
     }
 
     #[test]
     fn rejects_duplicate_device_and_bad_fields() {
         let dir = tempfile::tempdir().unwrap();
-        let (reg, store) = registry(dir.path());
+        let (reg, _db) = registry(dir.path());
         reg.add(input("dev-1")).unwrap();
         assert!(matches!(reg.add(input("dev-1")), Err(AccountError::Duplicate)));
         assert!(matches!(reg.add(input("bad uuid!")), Err(AccountError::Invalid(_))));
@@ -535,13 +519,12 @@ mod tests {
         no_sid.sid = "   ".into();
         assert!(matches!(reg.add(no_sid), Err(AccountError::Invalid(_))));
         assert_eq!(reg.list().len(), 1);
-        assert_eq!(store.0.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn update_and_remove() {
         let dir = tempfile::tempdir().unwrap();
-        let (reg, store) = registry(dir.path());
+        let (reg, db) = registry(dir.path());
         let acc = reg.add(input("dev-1")).unwrap();
         let updated = reg
             .update(acc.id, AccountPatch {
@@ -558,94 +541,57 @@ mod tests {
         assert_eq!(updated.siua.as_deref(), Some("a+b/c="));
         assert_eq!(updated.dfpid, None);
         assert_eq!(reg.with_session(acc.id).unwrap().1, "new-sid");
-        assert_eq!(store.0.lock().unwrap().get(&acc.id.to_string()).unwrap(), "new-sid");
+        assert_eq!(secret(&db, &acc.id.to_string()).as_deref(), Some("new-sid"));
 
-        // A failed patch must not partially apply.
-        let bad = reg.update(acc.id, AccountPatch {
-            label: Some("Ok".into()),
-            user_id: None,
-            version: Some("bad version".into()),
-            siua: None,
-            dfpid: None,
-            sid: None,
-        });
-        assert!(bad.is_err());
+        let bad = AccountPatch { label: Some("".into()), user_id: None, version: None, siua: None, dfpid: None, sid: None };
+        assert!(reg.update(acc.id, bad).is_err());
         assert_eq!(reg.list()[0].label, "Renamed");
 
         reg.remove(acc.id).unwrap();
         assert!(reg.list().is_empty());
-        assert!(store.0.lock().unwrap().is_empty());
+        assert_eq!(secret(&db, &acc.id.to_string()), None);
         assert!(matches!(reg.remove(acc.id), Err(AccountError::NotFound)));
+        let (reopened, _) = registry(dir.path());
+        assert!(reopened.list().is_empty());
     }
 
     #[test]
-    fn corrupt_file_is_moved_aside_not_lost() {
+    fn im_credentials_from_the_profile_are_stored_with_the_account() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(FILE_NAME), b"{not json").unwrap();
-        let reg = AccountRegistry::open(dir.path(), Box::new(MemoryStore::default())).unwrap();
-        assert!(reg.list().is_empty());
-        let backup = reg.recovered_backup().expect("backup path");
-        assert_eq!(fs::read(&backup).unwrap(), b"{not json");
-        assert!(!dir.path().join(FILE_NAME).exists());
-    }
-
-    #[test]
-    fn im_credentials_from_the_profile_stay_in_the_keychain() {
-        let dir = tempfile::tempdir().unwrap();
-        let (reg, store) = registry(dir.path());
+        let (reg, db) = registry(dir.path());
         let acc = reg.add(input("dev-1")).unwrap();
         assert!(reg.im_material(acc.id).is_err());
-        store.set(&legacy_hx_key(acc.id), "{old settings}").unwrap();
+        db.write(|tx| put_secret(tx, &legacy_hx_key(acc.id), Some("{old settings}"))).unwrap();
 
         let saved = reg.save_im_credentials(acc.id, "love_100", "hx-pw").unwrap().expect("first save");
         assert_eq!(saved.im.unwrap().username, "love_100");
         assert_eq!(reg.im_material(acc.id).unwrap(), ("love_100".into(), "hx-pw".into()));
-        let raw = fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
-        assert!(raw.contains("love_100") && !raw.contains("hx-pw"));
-        assert!(!store.0.lock().unwrap().contains_key(&legacy_hx_key(acc.id)), "old settings cleaned up");
+        assert_eq!(secret(&db, &legacy_hx_key(acc.id)), None, "old settings cleaned up");
 
         // Same credentials again: nothing written. A new password is.
         assert!(reg.save_im_credentials(acc.id, "love_100", "hx-pw").unwrap().is_none());
         assert!(reg.save_im_credentials(acc.id, "love_100", "hx-pw2").unwrap().is_some());
-        assert_eq!(store.0.lock().unwrap().get(&im_key(acc.id)).unwrap(), "hx-pw2");
+        drop((reg, db));
 
-        // A new run reads the password from the keychain.
-        let fresh = AccountRegistry::open(dir.path(), Box::new(Shared(store.clone()))).unwrap();
-        assert_eq!(fresh.im_material(acc.id).unwrap().1, "hx-pw2");
-
+        let (fresh, db) = registry(dir.path());
+        assert_eq!(fresh.im_material(acc.id).unwrap(), ("love_100".into(), "hx-pw2".into()));
         for (user, pw) in [("bad name", "pw"), ("love_1", ""), ("love_1", "a\nb")] {
-            assert!(reg.save_im_credentials(acc.id, user, pw).is_err());
+            assert!(fresh.save_im_credentials(acc.id, user, pw).is_err());
         }
-        reg.remove(acc.id).unwrap();
-        assert!(!store.0.lock().unwrap().contains_key(&im_key(acc.id)));
+        fresh.remove(acc.id).unwrap();
+        assert_eq!(secret(&db, &im_key(acc.id)), None);
     }
 
     #[test]
-    fn old_files_with_per_account_hx_settings_still_load() {
+    fn session_is_cached_after_first_read() {
         let dir = tempfile::tempdir().unwrap();
-        let json = r#"[{"id":"7f1f7c56-1b1e-4c55-9d37-0a4f1c2e9b10","label":"A","userId":null,"deviceUuid":"d1",
-            "version":"1","createdAt":1,"sessionSavedAt":1,
-            "hx":{"host":"h","port":1,"restBase":null,"appKey":"o#a","username":"u","auth":"password"}}]"#;
-        fs::write(dir.path().join(FILE_NAME), json).unwrap();
-        let (reg, _) = registry(dir.path());
-        assert_eq!(reg.list().len(), 1);
-        assert!(reg.list()[0].im.is_none());
-        assert!(reg.recovered_backup().is_none());
-    }
-
-    #[test]
-    fn session_is_cached_after_first_keychain_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let (reg, store) = registry(dir.path());
+        let (reg, db) = registry(dir.path());
         let acc = reg.add(input("dev-1")).unwrap();
-        store.0.lock().unwrap().clear(); // keychain emptied behind our back
+        db.write(|tx| put_secret(tx, &acc.id.to_string(), Some("changed behind our back"))).unwrap();
         assert_eq!(reg.with_session(acc.id).unwrap().1, "secret-sid");
 
-        let (fresh, store2) = registry(dir.path()); // new run: cache empty, reads keychain
-        store2.set(&acc.id.to_string(), "from-keychain").unwrap();
-        assert_eq!(fresh.with_session(acc.id).unwrap().1, "from-keychain");
-        fresh.remove(acc.id).unwrap();
-        assert!(fresh.with_session(acc.id).is_err());
+        let (fresh, _) = registry(dir.path()); // new run: cache empty, reads the database
+        assert_eq!(fresh.with_session(acc.id).unwrap().1, "changed behind our back");
     }
 
     #[test]
@@ -656,40 +602,11 @@ mod tests {
         assert_eq!(keep.user_id, None);
 
         let dir = tempfile::tempdir().unwrap();
-        let (reg, _) = registry(dir.path());
+        let (reg, _db) = registry(dir.path());
         let mut with_id = input("dev-1");
         with_id.user_id = Some("10".into());
         let acc = reg.add(with_id).unwrap();
         assert_eq!(reg.update(acc.id, keep).unwrap().user_id.as_deref(), Some("10"));
         assert_eq!(reg.update(acc.id, clear).unwrap().user_id, None);
-    }
-
-    struct FailingSet(Arc<MemoryStore>);
-    impl SecretStore for FailingSet {
-        fn get(&self, k: &str) -> Result<Option<String>> { self.0.get(k) }
-        fn set(&self, k: &str, s: &str) -> Result<()> {
-            if s == "fail" { Err(AccountError::Secret("locked".into())) } else { self.0.set(k, s) }
-        }
-        fn delete(&self, _: &str) -> Result<()> { Err(AccountError::Secret("locked".into())) }
-    }
-
-    #[test]
-    fn keychain_failures_keep_state_consistent() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(MemoryStore::default());
-        let reg = AccountRegistry::open(dir.path(), Box::new(FailingSet(store.clone()))).unwrap();
-        let acc = reg.add(input("dev-1")).unwrap();
-
-        // sid write fails -> old sid and metadata both unchanged, on disk too.
-        let patch = AccountPatch { label: Some("New".into()), user_id: None, version: None, siua: None, dfpid: None, sid: Some("fail".into()) };
-        assert!(reg.update(acc.id, patch).is_err());
-        assert_eq!(reg.list(), vec![acc.clone()]);
-        assert_eq!(store.0.lock().unwrap().get(&acc.id.to_string()).unwrap(), "secret-sid");
-        let (reopened, _) = registry(dir.path());
-        assert_eq!(reopened.list(), vec![acc.clone()]);
-
-        // keychain delete fails -> removal still reported as success.
-        reg.remove(acc.id).unwrap();
-        assert!(reg.list().is_empty());
     }
 }

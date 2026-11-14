@@ -60,7 +60,7 @@ export function useClearImTemplate() {
   });
 }
 
-/** Path of a corrupt accounts.json that was moved aside at startup, if any. */
+/** Path of an unreadable sky.db that was moved aside at startup, if any. */
 export function useRecoveredBackup() {
   return useQuery({ queryKey: ["accounts", "recovered"], queryFn: api.accounts.recoveredBackup, staleTime: Infinity });
 }

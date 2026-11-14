@@ -76,8 +76,8 @@ export function AccountsPage() {
         <div role="alert" className="flex gap-2 border-b bg-destructive/10 px-5 py-2.5 text-sm text-destructive">
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <p>
-            File danh sách account bị hỏng nên đã được cất sang{" "}
-            <code className="font-mono text-xs break-all">{recoveredBackup}</code>. Session vẫn còn trong secrets.json.
+            Cơ sở dữ liệu của app bị hỏng nên đã được cất sang{" "}
+            <code className="font-mono text-xs break-all">{recoveredBackup}</code> và tạo mới. Cần thêm lại account.
           </p>
         </div>
       )}

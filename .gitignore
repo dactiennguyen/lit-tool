@@ -13,6 +13,8 @@ node_modules/
 /scripts/.env
 /scripts/.env.*
 !/scripts/.env.example
+# Private account snapshots (sessions, IM credentials and device identifiers).
+/scripts/accounts/*.json
 # Private responses/samples at any depth (e.g. a script run from a moved folder).
 .private/
 /docs/data/google-login-request.actual.json

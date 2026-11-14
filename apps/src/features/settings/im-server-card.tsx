@@ -196,7 +196,7 @@ function ImServerForm({ settings }: { settings: AppSettings }) {
           className="font-mono text-xs break-all"
         />
         <p className="text-xs text-muted-foreground">
-          Lưu trong secrets.json. Khi đăng nhập chat, username trong template được thay bằng IM username của từng account.
+          Lưu trong sky.db. Khi đăng nhập chat, username trong template được thay bằng IM username của từng account.
         </p>
       </div>
 

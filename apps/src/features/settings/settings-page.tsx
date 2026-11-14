@@ -68,18 +68,10 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
-                Thông tin account (tên, user ID, device UUID, version) nằm trong file{" "}
-                <code className="font-mono text-xs text-foreground">accounts.json</code> ở thư mục dữ liệu của app.
+                Account, session (sid), mật khẩu chat, login template và cài đặt chung nằm trong cơ sở dữ liệu SQLite{" "}
+                <code className="font-mono text-xs text-foreground">sky.db</code> ở thư mục dữ liệu của app.
               </p>
-              <p>
-                Session (sid), mật khẩu chat của từng account và login template nằm trong file{" "}
-                <code className="font-mono text-xs text-foreground">secrets.json</code> cùng thư mục, chỉ user của máy
-                đọc được (không mã hoá).
-              </p>
-              <p>
-                Cài đặt chung (Server API, IM host, port) nằm trong file{" "}
-                <code className="font-mono text-xs text-foreground">settings.json</code> cùng thư mục.
-              </p>
+              <p>File chỉ user của máy đọc được, nhưng không mã hoá.</p>
             </CardContent>
           </Card>
         </div>

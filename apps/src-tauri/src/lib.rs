@@ -1,16 +1,16 @@
 mod accounts;
 mod chat;
+mod db;
 mod hx;
 mod lit;
 mod lit_types;
-mod secrets;
 mod settings;
 mod store;
 
 use tauri::Manager;
 
 use accounts::{AccountRegistry, KeyringStore};
-use secrets::FileSecretStore;
+use db::Db;
 use settings::SettingsStore;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,10 +19,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
-            // Secrets live in secrets.json; the keychain is only read to migrate old entries.
-            let secrets = std::sync::Arc::new(FileSecretStore::open(&dir, Some(Box::new(KeyringStore)))?);
-            app.manage(AccountRegistry::open(&dir, Box::new(secrets.clone()))?);
-            app.manage(SettingsStore::open(&dir, Box::new(secrets))?);
+            // Everything lives in sky.db; the keychain is only read to migrate old secrets.
+            let db = std::sync::Arc::new(Db::open(&dir, Some(Box::new(KeyringStore)))?);
+            app.manage(AccountRegistry::open(db.clone())?);
+            app.manage(SettingsStore::open(db)?);
             app.manage(chat::HxTokens::default());
             Ok(())
         })

@@ -91,7 +91,7 @@ export function AccountFormDialog({
           <DialogHeader>
             <DialogTitle>{isEdit ? "Sửa account" : "Thêm account"}</DialogTitle>
             <DialogDescription>
-              Session (sid) được cất trong secrets.json của app (chỉ user của máy đọc được) và không hiển thị lại.
+              Session (sid) được cất trong sky.db của app (chỉ user của máy đọc được) và không hiển thị lại.
             </DialogDescription>
           </DialogHeader>
 
