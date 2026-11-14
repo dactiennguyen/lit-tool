@@ -109,6 +109,14 @@ export interface ChatMessage {
   /** Milliseconds since the epoch. */
   timestamp: number | null;
   contents: MessageContent[];
+  /** Sender's name and avatar from the message's push payload, when present. */
+  sender: MessageSender | null;
+}
+
+export interface MessageSender {
+  name: string | null;
+  /** CDN file id of the avatar. */
+  avatar: string | null;
 }
 
 /** One `messageroaming` page, newest first. */

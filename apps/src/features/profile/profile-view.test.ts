@@ -8,8 +8,8 @@ describe("toProfileView", () => {
     const view = toProfileView(profile);
     expect(view.name).toBe("test_user");
     expect(view.id).toBe("000000000000000000000001");
-    // The avatar is a CDN file id, not a URL, so it is not rendered as an image.
-    expect(view.avatarUrl).toBeNull();
+    // The avatar is a CDN file id, rendered through the image endpoint.
+    expect(view.avatarUrl).toBe("https://www.litatom.com/api/sns/v1/lit/simage/00000000-0000-0000-0000-000000000001");
     expect(view.rows).toEqual([
       { label: "Lit ID", value: "1000000001" },
       { label: "Giới tính", value: "Nam" },
@@ -52,11 +52,11 @@ describe("toProfileView", () => {
     ]);
   });
 
-  it("renders only https avatar URLs", () => {
+  it("renders https avatar URLs and drops other values", () => {
     expect(toProfileView(makeProfile({ avatar: "https://cdn.example.com/a.jpg" })).avatarUrl).toBe(
       "https://cdn.example.com/a.jpg",
     );
-    for (const avatar of ["javascript:alert(1)", "avatars/123.jpg", "http://cdn.example.com/a.jpg"]) {
+    for (const avatar of [null, "javascript:alert(1)", "avatars/123.jpg", "http://cdn.example.com/a.jpg"]) {
       expect(toProfileView(makeProfile({ avatar })).avatarUrl).toBeNull();
     }
   });

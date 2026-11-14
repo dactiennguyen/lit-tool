@@ -11,7 +11,7 @@ describe("toOnlinePage", () => {
         key: "000000000000000000000001",
         id: "000000000000000000000001",
         name: "test_user",
-        avatarUrl: null,
+        avatarUrl: "https://www.litatom.com/api/sns/v1/lit/simage/00000000-0000-0000-0000-000000000001",
         age: 25,
         gender: "male",
         bio: "Test bio",

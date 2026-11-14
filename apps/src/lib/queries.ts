@@ -1,6 +1,6 @@
 import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChatMessage, Conversation } from "./lit-types";
-import { rememberPeers } from "./peer-directory";
+import { rememberPeers, rememberSender } from "./peer-directory";
 import { compareIds } from "./read-markers";
 import { connectTcp, isTcpError, setTcpStatus } from "./tcp-status";
 import { api, type Account, type AccountPatch, type AppSettings, type NewAccount, type SettingsPatch } from "./api";
@@ -128,6 +128,7 @@ export function useHistory(
     queryKey: historyKey(accountId, conversation?.id),
     queryFn: async ({ pageParam }) => {
       const page = await api.hx.history(accountId!, conversation!.id, conversation!.type, pageParam, HISTORY_PAGE);
+      if (conversation!.type === 0) rememberSender(conversation!.id, page.messages);
       // The newest page also tells the conversation list what the last message is.
       if (pageParam === null) qc.setQueryData(latestKey(accountId, conversation!.id), newestMessage(page.messages));
       return page;
@@ -163,8 +164,11 @@ export function useLatestMessages(accountId: string | undefined, conversations: 
   return useQueries({
     queries: list.map((c) => ({
       queryKey: latestKey(accountId, c.conversationId),
-      queryFn: async () =>
-        newestMessage((await api.hx.history(accountId!, c.conversationId, c.conversationType, null, PREVIEW_PAGE)).messages),
+      queryFn: async () => {
+        const { messages } = await api.hx.history(accountId!, c.conversationId, c.conversationType, null, PREVIEW_PAGE);
+        if (c.conversationType === 0) rememberSender(c.conversationId, messages);
+        return newestMessage(messages);
+      },
       enabled: enabled && !!accountId,
       retry: false,
       staleTime: 30_000,

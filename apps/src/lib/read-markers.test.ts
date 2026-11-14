@@ -3,7 +3,7 @@ import { persistedMap } from "./persisted-map";
 import { newestMessage } from "./queries";
 import { compareIds, markRead, readMarker } from "./read-markers";
 
-const msg = (id: string, timestamp: number | null) => ({ id, from: "x", to: null, timestamp, contents: [] });
+const msg = (id: string, timestamp: number | null) => ({ id, from: "x", to: null, timestamp, contents: [], sender: null });
 
 describe("read markers and stores", () => {
   it("compares uint64 ids as numbers", () => {

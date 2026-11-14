@@ -6,7 +6,7 @@ const content = (o: Partial<MessageContent>): MessageContent => ({
   type: 0, text: null, fileName: null, address: null, duration: null, customEvent: null, ...o,
 });
 const msg = (id: string, from: string, timestamp: number | null, text = id): ChatMessage => ({
-  id, from, to: null, timestamp, contents: [content({ text })],
+  id, from, to: null, timestamp, contents: [content({ text })], sender: null,
 });
 const page = (messages: ChatMessage[], isLast = false): HistoryPage => ({ messages, cursor: isLast ? null : "1", isLast });
 

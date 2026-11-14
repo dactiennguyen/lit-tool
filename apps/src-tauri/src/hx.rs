@@ -521,6 +521,18 @@ pub struct ChatMessage {
     /// Milliseconds since the epoch.
     pub timestamp: Option<u64>,
     pub contents: Vec<MessageContent>,
+    /// Sender's display name and avatar as put in the push payload by the
+    /// sending app; the only place the IM side names a peer.
+    pub sender: Option<MessageSender>,
+}
+
+/// From the `em_apns_ext` message attribute. Public profile fields only.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageSender {
+    pub name: Option<String>,
+    /// CDN file id (UUID) of the avatar.
+    pub avatar: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -556,6 +568,48 @@ fn jid_name(fields: &[Field], number: u32) -> Option<String> {
         Some(Value::Bytes(b)) => last_text(&read_fields(b).ok()?, 2),
         _ => None,
     }
+}
+
+const PUSH_EXT_KEY: &[u8] = b"em_apns_ext";
+const PUSH_EXT_MAX: usize = 16 * 1024;
+const SENDER_NAME_MAX: usize = 64;
+
+fn sender_name(v: Option<&serde_json::Value>) -> Option<String> {
+    let name = v?.as_str()?.trim();
+    (!name.is_empty() && name.chars().count() <= SENDER_NAME_MAX && !name.chars().any(char::is_control))
+        .then(|| name.to_owned())
+}
+
+fn file_id(v: Option<&serde_json::Value>) -> Option<String> {
+    let id = v?.as_str()?;
+    let ok = id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() });
+    ok.then(|| id.to_ascii_lowercase())
+}
+
+/// Name and avatar from the body's `em_apns_ext` attribute (KeyValue: key=1,
+/// stringValue=6). The push title is the sender's name: `em_push_name`, or the
+/// single argument of a `"%@"` title.
+fn sender_of(body: &[Field]) -> Option<MessageSender> {
+    let raw = body.iter().filter(|f| f.number == 5).find_map(|f| {
+        let Value::Bytes(kv) = &f.value else { return None };
+        let kv = read_fields(kv).ok()?;
+        match (last(&kv, 1), last(&kv, 6)) {
+            (Some(Value::Bytes(k)), Some(Value::Bytes(v))) if k == PUSH_EXT_KEY && v.len() <= PUSH_EXT_MAX => Some(v.clone()),
+            _ => None,
+        }
+    })?;
+    let ext: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    let title_arg = || {
+        (ext.get("em_push_title_loc_key")?.as_str()? == "%@")
+            .then(|| ext.get("em_push_title_loc_args")?.as_array().filter(|a| a.len() == 1)?.first())
+            .flatten()
+    };
+    let sender = MessageSender {
+        name: sender_name(ext.get("em_push_name")).or_else(|| sender_name(title_arg())),
+        avatar: file_id(ext.get("em_push_avatar")),
+    };
+    (sender.name.is_some() || sender.avatar.is_some()).then_some(sender)
 }
 
 fn history_err(m: &str) -> HxError {
@@ -600,6 +654,7 @@ pub fn decode_message(encoded: &str) -> Result<Option<ChatMessage>> {
         to: jid_name(&body, 3).or_else(|| jid_name(&meta, 3)),
         timestamp: last_varint(&meta, 4),
         contents,
+        sender: sender_of(&body),
     }))
 }
 
@@ -945,6 +1000,45 @@ mod tests {
         }
     }
 
+    fn message_with_ext(ext: &[(&str, &str)]) -> String {
+        let bytes = |number, v: Vec<u8>| Field { number, value: Value::Bytes(v) };
+        let jid = write_fields(&[bytes(2, b"love_200".to_vec())]);
+        let mut body = vec![Field { number: 1, value: Value::Varint(1) }, bytes(2, jid)];
+        for (k, v) in ext {
+            let kv = write_fields(&[bytes(1, k.as_bytes().to_vec()), Field { number: 2, value: Value::Varint(7) }, bytes(6, v.as_bytes().to_vec())]);
+            body.push(bytes(5, kv));
+        }
+        let meta = [
+            Field { number: 1, value: Value::Varint(42) },
+            Field { number: 5, value: Value::Varint(1) },
+            bytes(6, write_fields(&body)),
+        ];
+        STANDARD.encode(write_fields(&meta))
+    }
+
+    #[test]
+    fn reads_sender_from_push_attribute() {
+        let avatar = "0A1B2C3D-0000-4000-8000-00000000000F";
+        let sender = |ext: &[(&str, &str)]| decode_message(&message_with_ext(ext)).unwrap().unwrap().sender;
+
+        let named = format!(r#"{{"em_push_name":" Lan ","em_push_avatar":"{avatar}","em_push_content":"hi"}}"#);
+        assert_eq!(
+            sender(&[("mark_msg_id", "x"), ("em_apns_ext", &named)]),
+            Some(MessageSender { name: Some("Lan".into()), avatar: Some(avatar.to_ascii_lowercase()) })
+        );
+        // Name as the only argument of a "%@" title.
+        let titled = r#"{"em_push_title_loc_key":"%@","em_push_title_loc_args":["Minh"]}"#;
+        assert_eq!(sender(&[("em_apns_ext", titled)]), Some(MessageSender { name: Some("Minh".into()), avatar: None }));
+
+        // Nothing usable: no attribute, bad JSON, other title keys, bad avatar or name.
+        assert_eq!(sender(&[]), None);
+        assert_eq!(sender(&[("em_apns_ext", "not json")]), None);
+        assert_eq!(sender(&[("em_apns_ext", r#"{"em_push_title_loc_key":"new_msg","em_push_title_loc_args":["x"]}"#)]), None);
+        assert_eq!(sender(&[("em_apns_ext", r#"{"em_push_avatar":"../x","em_push_name":"a\u0007b"}"#)]), None);
+        assert_eq!(sender(&[("em_apns_ext", &format!(r#"{{"em_push_name":"{}"}}"#, "x".repeat(65)))]), None);
+        assert_eq!(sender(&[("other", &named)]), None);
+    }
+
     #[test]
     fn history_request_matches_typescript() {
         let (url, body) = history_request(&target(), 20, Some("1619473608067779152")).unwrap();
@@ -987,7 +1081,10 @@ mod tests {
         assert!(parse_history(&HistoryTarget { to: "love_300", ..target() }, &history_json(true, serde_json::Value::Null)).is_err());
         assert!(parse_history(&target(), &serde_json::json!({ "data": { "msgs": {} } })).is_err());
 
-        let contract = parse_history(&target(), &history_json(false, "1619467109815818896".into())).unwrap();
+        let mut contract = parse_history(&target(), &history_json(false, "1619467109815818896".into())).unwrap();
+        // One message with a sender, so the contract covers `MessageSender` too.
+        let ext = r#"{"em_push_name":"Lan","em_push_avatar":"00000000-0000-0000-0000-000000000001"}"#;
+        contract.messages.push(decode_message(&message_with_ext(&[("em_apns_ext", ext)])).unwrap().unwrap());
         crate::lit_types::check_contract("history-page.json", serde_json::to_value(&contract).unwrap());
     }
 }

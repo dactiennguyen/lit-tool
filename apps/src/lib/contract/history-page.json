@@ -14,7 +14,8 @@
           "duration": null,
           "customEvent": null
         }
-      ]
+      ],
+      "sender": null
     },
     {
       "id": "18446744073709551615",
@@ -30,7 +31,19 @@
           "duration": null,
           "customEvent": null
         }
-      ]
+      ],
+      "sender": null
+    },
+    {
+      "id": "42",
+      "from": "love_200",
+      "to": null,
+      "timestamp": null,
+      "contents": [],
+      "sender": {
+        "name": "Lan",
+        "avatar": "00000000-0000-0000-0000-000000000001"
+      }
     }
   ],
   "cursor": "1619467109815818896",

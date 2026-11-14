@@ -19,6 +19,7 @@ import type {
   Conversation,
   HistoryPage,
   MessageContent,
+  MessageSender,
   MoodStatus,
   OnlineUsersPage,
   SendOutcome,
@@ -70,7 +71,8 @@ const WALLET_KEYS = keysOf<Wallet>()(["diamonds", "stars", "amethysts", "frozenD
 const PAGE_KEYS = keysOf<OnlineUsersPage>()(["users", "hasNext", "nextStart"]);
 const CONVERSATION_KEYS = keysOf<Conversation>()(["conversationId", "conversationType"]);
 const HISTORY_KEYS = keysOf<HistoryPage>()(["messages", "cursor", "isLast"]);
-const MESSAGE_KEYS = keysOf<ChatMessage>()(["id", "from", "to", "timestamp", "contents"]);
+const MESSAGE_KEYS = keysOf<ChatMessage>()(["id", "from", "to", "timestamp", "contents", "sender"]);
+const SENDER_KEYS = keysOf<MessageSender>()(["name", "avatar"]);
 const CONTENT_KEYS = keysOf<MessageContent>()(["type", "text", "fileName", "address", "duration", "customEvent"]);
 const SEND_KEYS = keysOf<SendOutcome>()(["serverId", "localId", "metadataError"]);
 
@@ -92,7 +94,9 @@ describe("Rust ↔ TypeScript contract", () => {
     for (const m of typedHistory.messages) {
       expect(Object.keys(m).sort()).toEqual([...MESSAGE_KEYS].sort());
       for (const c of m.contents) expect(Object.keys(c).sort()).toEqual([...CONTENT_KEYS].sort());
+      if (m.sender) expect(Object.keys(m.sender).sort()).toEqual([...SENDER_KEYS].sort());
     }
+    expect(typedHistory.messages.some((m) => m.sender)).toBe(true);
     expect(Object.keys(typedSend).sort()).toEqual([...SEND_KEYS].sort());
   });
 });

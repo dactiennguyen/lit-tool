@@ -28,9 +28,12 @@ describe("lit-format", () => {
     expect(tagNames(makeProfile({ tags }), 1)).toEqual(["A"]);
   });
 
-  it("keeps only absolute https image URLs", () => {
+  it("turns CDN file ids into image URLs and keeps absolute https URLs", () => {
+    const id = "00000000-0000-0000-0000-00000000000A";
+    expect(safeImageUrl(id)).toBe("https://www.litatom.com/api/sns/v1/lit/simage/00000000-0000-0000-0000-00000000000a");
+    expect(safeImageUrl(id, "full")).toBe("https://www.litatom.com/api/sns/v1/lit/image/00000000-0000-0000-0000-00000000000a");
     expect(safeImageUrl("https://x.example/a.png")).toBe("https://x.example/a.png");
-    for (const v of [null, "", "00000000-0000-0000-0000-000000000001", "http://x/a.png", "javascript:alert(1)"]) {
+    for (const v of [null, "", "0000-../x", "http://x/a.png", "javascript:alert(1)"]) {
       expect(safeImageUrl(v)).toBeNull();
     }
   });
