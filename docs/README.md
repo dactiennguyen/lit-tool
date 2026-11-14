@@ -32,6 +32,8 @@ Nguồn: `base.apk` + `split_config.arm64_v8a.apk` → decompile tại [`../base
 | [22-nodejs-hyphenate-connect.md](22-nodejs-hyphenate-connect.md) | Client Node.js một file: `.env`, token, handshake TCP, gửi TXT thử và giới hạn |
 | [23-full-workflow-gui-tin.md](23-full-workflow-gui-tin.md) | Hook UI → SDK → TCP/ACK, ba HTTPS đi kèm, xác minh tin Node trong history server và local cache |
 | [24-nodejs-conversations.md](24-nodejs-conversations.md) | Node thuần: lấy danh sách conversation và lịch sử tin từ server, giải mã protobuf và phân trang |
+| [29-feed-api.md](29-feed-api.md) | Tab Gợi ý / Phổ biến / Kết bạn, API và TypeScript |
+| [31-node-tcp-listener.md](31-node-tcp-listener.md) | Node tự login và nghe TCP IM, heartbeat, đồng bộ queue, không ADB |
 | [99-phu-luc-endpoints.md](99-phu-luc-endpoints.md) | Phụ lục: endpoints, địa chỉ hàm, khoá |
 
 ### Workflows (bản tóm tắt điều hướng)
