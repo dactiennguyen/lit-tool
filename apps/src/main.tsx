@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { router } from "@/router";
 import { noteQueryError } from "@/lib/sessions";
+import { startLiveEvents } from "@/lib/hx-live";
 import { applyTheme, readStoredTheme, resolveTheme, ThemeProvider } from "@/lib/theme";
 import "./index.css";
 
@@ -25,6 +26,7 @@ const queryClient = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 },
   },
 });
+startLiveEvents(queryClient);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

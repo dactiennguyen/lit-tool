@@ -146,6 +146,8 @@ pub struct SignedRequest {
     pub request_id: String,
     /// Shadow-encoded JSON body; `Some` makes this a POST.
     pub body: Option<String>,
+    /// The body before encoding, for the connection log.
+    pub plain_body: Option<String>,
 }
 
 /// Port of `buildGetRequest`, except X-SIUA is only sent when the account has one.
@@ -198,7 +200,7 @@ pub fn build_get(
     if let Some(siua) = profile.siua {
         headers.push(("X-SIUA", siua.to_owned()));
     }
-    Ok(SignedRequest { url, headers, request_id: opts.request_id, body: None })
+    Ok(SignedRequest { url, headers, request_id: opts.request_id, body: None, plain_body: None })
 }
 
 pub(crate) fn is_id(v: &str) -> bool {
@@ -274,8 +276,28 @@ pub fn build_post(step: MetadataStep, to: &str, profile: &LitProfile, opts: Sign
     let mut iv = [0u8; 16];
     getrandom::fill(&mut iv).map_err(|e| LitError::Invalid(format!("Không tạo được số ngẫu nhiên: {e}")))?;
     req.headers.push(("Content-Type", "application/x-litatom-json; charset=UTF-8".to_owned()));
-    req.body = Some(shadow_encode(&step.payload(to).to_string(), iv));
+    let payload = step.payload(to).to_string();
+    req.body = Some(shadow_encode(&payload, iv));
+    req.plain_body = Some(payload);
     Ok(req)
+}
+
+/// The response body as text, decrypted when the `x-is-enc` flag says so.
+fn response_text(status: u16, enc_flag: Option<&str>, body: &[u8], request_id: &str) -> Result<String, LitError> {
+    let mut text = String::from_utf8_lossy(body).into_owned();
+    if (200..300).contains(&status)
+        && let Some(flag) = enc_flag
+    {
+        let flag = shadow_decode(flag)?;
+        let (mode, id) = flag.split_at_checked(1).ok_or(LitError::Decode)?;
+        if id != request_id || !matches!(mode, "0" | "1") {
+            return Err(LitError::Decode);
+        }
+        if mode == "1" {
+            text = shadow_decode(&text)?;
+        }
+    }
+    Ok(text)
 }
 
 /// Port of the response handling in `fetchRequest` + `isLitAccepted`.
@@ -286,17 +308,7 @@ pub fn decode_response(
     request_id: &str,
 ) -> Result<serde_json::Value, LitError> {
     let ok = (200..300).contains(&status);
-    let mut text = String::from_utf8_lossy(body).into_owned();
-    if ok && let Some(flag) = enc_flag {
-        let flag = shadow_decode(flag)?;
-        let (mode, id) = flag.split_at_checked(1).ok_or(LitError::Decode)?;
-        if id != request_id || !matches!(mode, "0" | "1") {
-            return Err(LitError::Decode);
-        }
-        if mode == "1" {
-            text = shadow_decode(&text)?;
-        }
-    }
+    let text = response_text(status, enc_flag, body, request_id)?;
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| LitError::NotJson(status))?;
     let success = json.get("success").and_then(|v| v.as_bool());
     let result = json.get("result").and_then(|v| v.as_i64());
@@ -330,7 +342,7 @@ pub(crate) fn http_client() -> Result<&'static reqwest::Client, LitError> {
 }
 
 /// Sends a signed GET, or a POST when the request has a body.
-pub async fn send(req: SignedRequest) -> Result<serde_json::Value, LitError> {
+pub async fn send(req: SignedRequest, account_id: uuid::Uuid) -> Result<serde_json::Value, LitError> {
     let client = http_client()?;
     let mut builder = match req.body {
         Some(body) => client.post(req.url).body(body),
@@ -339,20 +351,18 @@ pub async fn send(req: SignedRequest) -> Result<serde_json::Value, LitError> {
     for (k, v) in &req.headers {
         builder = builder.header(*k, v);
     }
-    // Never include the URL in errors: it carries the sid.
-    let net = |e: reqwest::Error| LitError::Network(e.without_url().to_string());
-    let mut response = builder.send().await.map_err(net)?;
-    let status = response.status().as_u16();
-    let enc_flag = response.headers().get("x-is-enc").and_then(|v| v.to_str().ok()).map(str::to_owned);
-
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(net)? {
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(LitError::TooLarge);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    decode_response(status, enc_flag.as_deref(), &body, &req.request_id)
+    let trace = crate::http::Trace { account_id: Some(account_id), service: "Litmatch API" };
+    let enc_flag = |f: &crate::http::Fetched| f.headers.get("x-is-enc").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    // The log shows both bodies decrypted (secrets masked there).
+    let plain_response = |f: &crate::http::Fetched| response_text(f.status, enc_flag(f).as_deref(), &f.body, &req.request_id).ok();
+    // Errors never include the URL: it carries the sid.
+    let response = crate::http::fetch_with(builder, MAX_RESPONSE_BYTES, trace, req.plain_body.as_deref(), plain_response)
+        .await
+        .map_err(|e| match e {
+            crate::http::FetchError::Network(m) => LitError::Network(m),
+            crate::http::FetchError::TooLarge => LitError::TooLarge,
+        })?;
+    decode_response(response.status, enc_flag(&response).as_deref(), &response.body, &req.request_id)
 }
 
 // ---------- tauri commands ----------
@@ -397,7 +407,7 @@ pub(crate) async fn request_for_account(
         base_url: &base_url,
     };
     let request = build(&profile, SignOptions::fresh()?)?;
-    Ok(send(request).await?)
+    Ok(send(request, account_id).await?)
 }
 
 /// [`request_for_account`] with the response `data` parsed as `T` (see lit_types.rs).

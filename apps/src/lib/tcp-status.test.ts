@@ -1,15 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { getTcpStatus, isTcpError, setTcpStatus } from "./tcp-status";
+import { applyLiveState, getTcpStatus, isLive, isTcpError, setTcpStatus } from "./tcp-status";
 
 describe("tcp status", () => {
   it("starts idle and keeps the latest result per account", () => {
     expect(getTcpStatus("a")).toEqual({ state: "idle" });
     setTcpStatus("a", { state: "connecting" });
-    setTcpStatus("a", { state: "ok", at: 5, via: "check" });
-    expect(getTcpStatus("a")).toEqual({ state: "ok", at: 5, via: "check" });
+    setTcpStatus("a", { state: "ok", at: 5, via: "send" });
+    expect(getTcpStatus("a")).toEqual({ state: "ok", at: 5, via: "send" });
     expect(getTcpStatus("b")).toEqual({ state: "idle" });
     setTcpStatus("a", null);
     expect(getTcpStatus("a")).toEqual({ state: "idle" });
+  });
+
+  it("maps live connection states; stopped by the user is idle, by an error is an error", () => {
+    applyLiveState("l", { state: "live", since: 7 });
+    expect(getTcpStatus("l")).toEqual({ state: "live", since: 7 });
+    expect(isLive(getTcpStatus("l"))).toBe(true);
+    applyLiveState("l", { state: "retrying", at: 8, message: "Server chat đóng kết nối", retryAt: 9 });
+    expect(isLive(getTcpStatus("l"))).toBe(true);
+    applyLiveState("l", { state: "stopped", at: 10, message: "Server chat từ chối đăng nhập (code=8)" });
+    expect(getTcpStatus("l")).toEqual({ state: "error", at: 10, message: "Server chat từ chối đăng nhập (code=8)" });
+    expect(isLive(getTcpStatus("l"))).toBe(false);
+    applyLiveState("l", { state: "stopped", at: 11, message: null });
+    expect(getTcpStatus("l")).toEqual({ state: "idle" });
   });
 
   it("tells TCP login failures from other send errors", () => {

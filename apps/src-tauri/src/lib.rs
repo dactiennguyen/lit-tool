@@ -1,9 +1,13 @@
 mod accounts;
 mod chat;
 mod db;
+mod http;
 mod hx;
+mod inspect;
+mod listen;
 mod lit;
 mod lit_types;
+mod msync;
 mod settings;
 mod store;
 mod update;
@@ -27,6 +31,8 @@ pub fn run() {
             app.manage(AccountRegistry::open(db.clone())?);
             app.manage(SettingsStore::open(db)?);
             app.manage(chat::HxTokens::default());
+            app.manage(listen::Listeners::default());
+            http::init(app.handle());
             update::start(app.handle());
             Ok(())
         })
@@ -35,7 +41,6 @@ pub fn run() {
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,
-            chat::hx_check_connection,
             chat::hx_probe_servers,
             accounts::accounts_recovered_backup,
             settings::settings_get,
@@ -49,6 +54,9 @@ pub fn run() {
             lit::lit_feeds,
             chat::hx_history,
             chat::hx_send_text,
+            listen::hx_listen_start,
+            listen::hx_listen_stop,
+            listen::hx_listen_status,
             update::update_status,
             update::update_check,
         ])

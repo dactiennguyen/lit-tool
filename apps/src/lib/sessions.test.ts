@@ -7,12 +7,13 @@ import { getTcpStatus } from "./tcp-status";
 
 const userInfoMe = vi.fn();
 const settingsGet = vi.fn();
-const checkConnection = vi.fn();
+const listenStart = vi.fn();
+const listenStop = vi.fn();
 vi.mock("./api", () => ({
   api: {
     lit: { userInfoMe: (id: string) => userInfoMe(id) },
     settings: { get: () => settingsGet() },
-    hx: { checkConnection: (id: string) => checkConnection(id) },
+    hx: { listenStart: (id: string) => listenStart(id), listenStop: (id: string) => listenStop(id) },
   },
 }));
 
@@ -24,7 +25,8 @@ describe("sessions", () => {
   beforeEach(() => {
     qc = new QueryClient();
     userInfoMe.mockReset();
-    checkConnection.mockReset().mockResolvedValue({ steps: [] });
+    listenStart.mockReset().mockResolvedValue({ state: "connecting" });
+    listenStop.mockReset().mockResolvedValue(undefined);
     settingsGet.mockReset().mockResolvedValue({ autoConnectTcp: false, imServers: null });
   });
 
@@ -56,6 +58,7 @@ describe("sessions", () => {
     await login(qc, account("a3"));
     qc.setQueryData(["lit", "user_info_me", "other"], makeProfile());
     logout(qc, "a3");
+    expect(listenStop).toHaveBeenCalledWith("a3");
     expect(getSession(account("a3"))).toEqual({ state: "out" });
     expect(qc.getQueryData(["lit", "user_info_me", "a3"])).toBeUndefined();
     expect(qc.getQueryData(["lit", "user_info_me", "other"])).toBeDefined();
@@ -72,20 +75,20 @@ describe("sessions", () => {
     expect(getSession(account("a4"))).toMatchObject({ state: "error", expired: true });
   });
 
-  it("connects over TCP after login only when auto-connect is on", async () => {
+  it("opens the live connection after login only when auto-connect is on", async () => {
     userInfoMe.mockResolvedValue(makeProfile());
     await login(qc, account("a5"));
-    expect(checkConnection).not.toHaveBeenCalled();
+    expect(listenStart).not.toHaveBeenCalled();
 
     // No server list saved yet: the backend fetches it on this first connection.
     qc.removeQueries({ queryKey: ["settings"] });
     settingsGet.mockResolvedValue({ autoConnectTcp: true, imServers: null });
     await login(qc, account("a5"));
-    expect(checkConnection).toHaveBeenCalledWith("a5");
-    expect(getTcpStatus("a5").state).toBe("ok");
+    expect(listenStart).toHaveBeenCalledWith("a5");
+    expect(getTcpStatus("a5").state).toBe("connecting");
 
     // A failed connection does not fail the login.
-    checkConnection.mockRejectedValue(new Error("Kết nối TCP thất bại: refused"));
+    listenStart.mockRejectedValue(new Error("Kết nối TCP thất bại: refused"));
     expect(await login(qc, account("a6"))).toBe(true);
     expect(getTcpStatus("a6")).toMatchObject({ state: "error", message: "Kết nối TCP thất bại: refused" });
   });

@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { Conversation, FeedPage, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
+import type { ChatMessage, Conversation, FeedPage, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
 
 export interface Account {
   id: string;
@@ -20,14 +20,62 @@ export interface ImIdentity {
   savedAt: number;
 }
 
-export interface HxCheckResult {
-  username: string;
-  appKey: string;
-  host: string;
-  port: number;
-  /** Set when a new token was requested for this check. */
-  tokenExpiresIn: number | null;
-  steps: { step: "login" | "followup"; type: string; code: string; accepted: boolean }[];
+/** Where the live chat connection of an account stands (listen.rs `LiveState`). Times in ms since the epoch. */
+export type LiveState =
+  | { state: "connecting" }
+  | { state: "live"; since: number }
+  | { state: "retrying"; at: number; message: string; retryAt: number }
+  /** `message` null: stopped by the user. */
+  | { state: "stopped"; at: number; message: string | null };
+
+/** "hx-status" event payload. */
+export type LiveStatusEvent = { accountId: string } & LiveState;
+
+/** "hx-log" event payload: one frame in or out of the live connection (never a token or message text). */
+export interface LiveLogEvent {
+  accountId: string;
+  at: number;
+  dir: "in" | "out";
+  /** Frame size, length prefix included. */
+  bytes: number;
+  /** login, unread, notice, sync, send, ack, logout, unsupported, unknown. */
+  kind: string;
+  summary: string;
+  /** Name and value pairs for the details. */
+  info: [string, string][];
+  /** The whole frame as a field tree, secrets masked. */
+  data: string;
+}
+
+/** "http-log" event payload (http.rs): one HTTP request and its response, every secret shown as "•••". */
+export interface HttpLogEvent {
+  /** Null for requests of no account (the server list). */
+  accountId: string | null;
+  at: number;
+  service: string;
+  method: string;
+  origin: string;
+  path: string;
+  query: [string, string][];
+  requestHeaders: [string, string][];
+  /** JSON pretty-printed; Litmatch bodies decrypted. Empty when there is none. */
+  requestBody: string;
+  status: number | null;
+  ms: number;
+  bytes: number | null;
+  responseHeaders: [string, string][];
+  responseBody: string;
+  error: string | null;
+}
+
+/** "hx-message" event payload: a new chat message heard on the live connection. */
+export interface LiveMessageEvent {
+  accountId: string;
+  /** The peer's IM ID (one-to-one) or the group ID. */
+  conversationId: string;
+  /** 0 one-to-one, 1 group. */
+  conversationType: 0 | 1;
+  message: ChatMessage;
 }
 
 /** `hx_probe_servers`: each saved server and whether a TCP connection to it opens (no login). */
@@ -122,15 +170,22 @@ export const api = {
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
   },
   hx: {
-    /** Token + TCP login + followup, then disconnect. Sends no message. */
-    checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
+    /**
+     * Opens the account's live connection (kept until stopped). Its progress
+     * comes as "hx-status" events, new messages as "hx-message" events.
+     */
+    listenStart: (accountId: string) => call<LiveState>("hx_listen_start", { accountId }),
+    listenStop: (accountId: string) => call<void>("hx_listen_stop", { accountId }),
+    /** The running live connections, by account. */
+    listenStatus: () => call<Record<string, LiveState>>("hx_listen_status"),
     /** Opens and closes a TCP connection to each saved server. No login, nothing sent. */
     probeServers: () => call<ServersReport>("hx_probe_servers"),
     /** One `messageroaming` page (newest first). Read-only. */
     history: (accountId: string, conversationId: string, conversationType: number, cursor: string | null, limit: number) =>
       call<HistoryPage>("hx_history", { accountId, conversationId, conversationType, cursor, limit }),
     /**
-     * Sends exactly one text message and waits for the server ACK. `firstContact`
+     * Sends exactly one text message and waits for the server ACK (through the
+     * live connection when one is open). `firstContact`
      * also writes the Litmatch metadata for a new conversation. Never retried.
      */
     sendText: (accountId: string, to: string, text: string, firstContact: boolean) =>

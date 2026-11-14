@@ -466,8 +466,10 @@ pub fn accounts_recovered_backup(registry: State<'_>) -> Option<String> {
 }
 
 #[tauri::command(async)]
-pub fn accounts_remove(registry: State<'_>, id: Uuid) -> Result<()> {
-    registry.remove(id)
+pub fn accounts_remove(app: tauri::AppHandle, registry: State<'_>, id: Uuid) -> Result<()> {
+    registry.remove(id)?;
+    crate::listen::stop(&app, id);
+    Ok(())
 }
 
 #[cfg(test)]

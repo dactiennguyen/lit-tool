@@ -1,11 +1,11 @@
 import { createContext, useContext, useState } from "react";
 import { Link, Outlet, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRoundIcon, Loader2Icon, LogInIcon, LogOutIcon, PlugZapIcon, UserXIcon } from "lucide-react";
-import { toast } from "sonner";
+import { KeyRoundIcon, Loader2Icon, LogInIcon, LogOutIcon, ScrollTextIcon, UserXIcon } from "lucide-react";
 import { AccountAvatar } from "@/components/account-avatar";
 import { EmptyState } from "@/components/empty-state";
 import { SessionText } from "@/components/session-status";
+import { ConnectTcpButton } from "@/components/connect-tcp-button";
 import { TcpText } from "@/components/tcp-status";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,10 +14,11 @@ import { ChatTab } from "@/features/chat/chat-tab";
 import { DiscoverTab } from "@/features/online/discover-tab";
 import { FeedTab } from "@/features/feed/feed-tab";
 import { ProfileTab } from "@/features/profile/profile-tab";
+import { LogDialog } from "./log-dialog";
 import type { Account } from "@/lib/api";
-import { litQueries, useAccounts, useCheckHxConnection } from "@/lib/queries";
+import { litQueries, useAccounts } from "@/lib/queries";
 import { useLogin, useSession, type SessionState } from "@/lib/sessions";
-import { useTcpStatus, type TcpStatus } from "@/lib/tcp-status";
+import { useTcpStatus } from "@/lib/tcp-status";
 
 const AccountContext = createContext<Account | null>(null);
 
@@ -89,6 +90,7 @@ function Workspace({ account }: { account: Account }) {
   const me = useQuery({ ...litQueries.userInfoMe(account.id), enabled: false });
   const loggedIn = session.state === "in";
   const tcp = useTcpStatus(account.id);
+  const [logOpen, setLogOpen] = useState(false);
 
   return (
     <AccountContext.Provider value={account}>
@@ -109,11 +111,18 @@ function Workspace({ account }: { account: Account }) {
             </div>
           </div>
           {loggedIn && (
-            <Button variant="ghost" size="sm" onClick={() => logout(account.id)}>
-              <LogOutIcon aria-hidden />
-              Đăng xuất
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" title="Log TCP và HTTP của account" onClick={() => setLogOpen(true)}>
+                <ScrollTextIcon aria-hidden />
+                Log
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => logout(account.id)}>
+                <LogOutIcon aria-hidden />
+                Đăng xuất
+              </Button>
+            </div>
           )}
+          <LogDialog account={account} open={logOpen} onOpenChange={setLogOpen} />
         </div>
         <nav aria-label="Mục của account" className="flex gap-1 px-4">
           {TABS.map((t) => (
@@ -138,34 +147,6 @@ function Workspace({ account }: { account: Account }) {
         <LoginPanel account={account} session={session} onLogin={() => login(account)} />
       )}
     </AccountContext.Provider>
-  );
-}
-
-/**
- * One TCP login + followup, then disconnect (see `hx_check_connection`). Says
- * what is missing instead when chat is not set up yet.
- */
-function ConnectTcpButton({ account, status }: { account: Account; status: TcpStatus }) {
-  const connecting = status.state === "connecting";
-  const check = useCheckHxConnection();
-  const missing = !account.im ? "Hồ sơ chưa có thông tin chat: đăng xuất rồi đăng nhập lại" : null;
-
-  return (
-    <Button
-      variant="outline"
-      size="xs"
-      disabled={!!missing || connecting || check.isPending}
-      title={missing ?? "Đăng nhập TCP rồi ngắt ngay, không gửi tin. Có thể làm app điện thoại bị đăng xuất."}
-      onClick={() =>
-        check.mutate(account.id, {
-          onSuccess: () => toast.success(`${account.label}: kết nối TCP thành công`),
-          onError: (e) => toast.error(`${account.label}: ${e.message}`),
-        })
-      }
-    >
-      {connecting || check.isPending ? <Loader2Icon className="animate-spin" aria-hidden /> : <PlugZapIcon aria-hidden />}
-      {missing ? "Chưa có thông tin chat" : status.state === "idle" ? "Kết nối" : "Kết nối lại"}
-    </Button>
   );
 }
 

@@ -1,14 +1,17 @@
-// Result of the last TCP login to the chat server, per account, for this app
-// run. There is no long-lived connection yet: each check or send logs in and
-// disconnects, so this says how the latest attempt went, not "connected now".
+// Chat connection status per account, for this app run. "connecting", "live"
+// and "retrying" come from the account's live connection (listen.rs, through
+// the "hx-status" event, see hx-live.ts). Without one, a message is sent over
+// a one-off login, and "ok"/"error" say how the latest send went.
 
-import { api, type HxCheckResult } from "./api";
+import { api, type LiveState } from "./api";
 import { persistedMap } from "./persisted-map";
 
 export type TcpStatus =
   | { state: "idle" }
   | { state: "connecting" }
-  | { state: "ok"; at: number; via: "check" | "send" }
+  | { state: "live"; since: number }
+  | { state: "retrying"; at: number; message: string; retryAt: number }
+  | { state: "ok"; at: number; via: "send" }
   | { state: "error"; at: number; message: string };
 
 type Stored = Exclude<TcpStatus, { state: "idle" }>;
@@ -29,6 +32,16 @@ export function useTcpStatus(accountId: string): TcpStatus {
   return statuses.use().get(accountId) ?? { state: "idle" };
 }
 
+/** A live connection is open or being opened: sends go through it. */
+export const isLive = (s: TcpStatus) => s.state === "connecting" || s.state === "live" || s.state === "retrying";
+
+/** Records a state of the live connection; stopped by the user = idle. */
+export function applyLiveState(accountId: string, s: LiveState): void {
+  if (s.state !== "stopped") setTcpStatus(accountId, s);
+  else if (s.message !== null) setTcpStatus(accountId, { state: "error", at: s.at, message: s.message });
+  else setTcpStatus(accountId, null);
+}
+
 /**
  * Errors that come from the TCP login itself (hx.rs `HxError` texts), as
  * opposed to e.g. an invalid message text rejected before connecting.
@@ -39,19 +52,20 @@ export function isTcpError(message: string): boolean {
   );
 }
 
-/**
- * One TCP login + followup, then disconnect (`hx_check_connection`); sends no
- * message. The outcome is recorded as the account's status either way.
- */
-export async function connectTcp(accountId: string): Promise<HxCheckResult> {
+/** Opens the live connection of the account (`hx_listen_start`); it stays open until stopped. */
+export async function connectTcp(accountId: string): Promise<void> {
   setTcpStatus(accountId, { state: "connecting" });
   try {
-    const result = await api.hx.checkConnection(accountId);
-    setTcpStatus(accountId, { state: "ok", at: Date.now(), via: "check" });
-    return result;
+    applyLiveState(accountId, await api.hx.listenStart(accountId));
   } catch (e) {
     const message = e instanceof Error ? e.message : "Không kết nối được";
     setTcpStatus(accountId, { state: "error", at: Date.now(), message });
     throw e;
   }
+}
+
+/** Closes the live connection of the account. */
+export async function disconnectTcp(accountId: string): Promise<void> {
+  await api.hx.listenStop(accountId);
+  setTcpStatus(accountId, null);
 }

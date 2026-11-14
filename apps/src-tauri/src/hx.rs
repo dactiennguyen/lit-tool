@@ -1,5 +1,6 @@
-//! Hyphenate (Easemob) IM: token request, TCP login, sending one text message
-//! and reading history.
+//! Hyphenate (Easemob) IM: protobuf wire format, login and text message
+//! frames, server discovery, token request and history. The TCP sessions
+//! themselves are in listen/ (and their frames in msync.rs).
 //! Port of scripts/src/hyphenate/{fields,template,token,connection,message,history}.ts.
 
 use std::time::Duration;
@@ -7,8 +8,9 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+use crate::http::{FetchError, Trace};
 
 /// The Litmatch app key on Easemob (org#app).
 pub const DEFAULT_APP_KEY: &str = "1102190223222824#lit";
@@ -18,9 +20,9 @@ pub const DEFAULT_REST_BASE: &str = "https://a1-sgp-ga.easecdn.com";
 const DISCOVERY_URL: &str = "https://rs.easemob.com/easemob/server.json";
 #[cfg(test)]
 const MAX_TEMPLATE_B64: usize = 65_536;
-const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Sent after a successful login, before the session is usable.
-const FOLLOWUP_FRAME: [u8; 12] = [0, 0, 0, 8, 0x08, 0x00, 0x40, 0x01, 0x4a, 0x00, 0x58, 0x00];
+pub(crate) const FOLLOWUP_FRAME: [u8; 12] = [0, 0, 0, 8, 0x08, 0x00, 0x40, 0x01, 0x4a, 0x00, 0x58, 0x00];
 
 #[derive(Debug, thiserror::Error)]
 pub enum HxError {
@@ -76,7 +78,7 @@ pub struct Field {
 
 impl Value {
     /// Same text as `String(getField(...))` in the TS code.
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         match self {
             Value::Varint(v) | Value::Fixed64(v) => v.to_string(),
             Value::Fixed32(v) => v.to_string(),
@@ -160,7 +162,7 @@ pub fn write_fields(fields: &[Field]) -> Vec<u8> {
     out
 }
 
-fn get(fields: &[Field], number: u32) -> Option<&Value> {
+pub(crate) fn get(fields: &[Field], number: u32) -> Option<&Value> {
     fields.iter().find(|f| f.number == number).map(|f| &f.value)
 }
 
@@ -180,7 +182,7 @@ fn replace_bytes(fields: &mut [Field], number: u32, value: Vec<u8>) -> Result<()
     Ok(())
 }
 
-fn frame(payload: &[u8]) -> Vec<u8> {
+pub(crate) fn frame(payload: &[u8]) -> Vec<u8> {
     let mut out = (payload.len() as u32).to_be_bytes().to_vec();
     out.extend_from_slice(payload);
     out
@@ -362,21 +364,29 @@ pub async fn discover(app_key: &str) -> Result<ImServers> {
     let mut url = url::Url::parse(DISCOVERY_URL).expect("valid constant");
     url.query_pairs_mut().append_pair("app_key", app_key).append_pair("_v", &crate::store::now_ms().to_string());
     let client = crate::lit::http_client().map_err(|e| HxError::Discovery(e.to_string()))?;
-    let net = |e: reqwest::Error| HxError::Discovery(e.without_url().to_string());
-    let mut response = client.get(url).send().await.map_err(net)?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(HxError::Discovery(format!("HTTP {}", status.as_u16())));
+    let trace = Trace { account_id: None, service: "Easemob: danh sách server" };
+    let response = fetch(client.get(url), MAX_FRAME_BYTES, trace, HxError::Discovery).await?;
+    if !(200..300).contains(&response.status) {
+        return Err(HxError::Discovery(format!("HTTP {}", response.status)));
     }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(net)? {
-        if body.len() + chunk.len() > MAX_FRAME_BYTES {
-            return Err(HxError::Discovery("response vượt 1 MiB".into()));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| HxError::Discovery("JSON không hợp lệ".into()))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&response.body).map_err(|_| HxError::Discovery("JSON không hợp lệ".into()))?;
     parse_discovery(&value)
+}
+
+/// [`crate::http::fetch`] (sends and logs the request) with its errors made by `wrap`.
+async fn fetch(
+    request: reqwest::RequestBuilder,
+    limit: usize,
+    trace: Trace,
+    wrap: fn(String) -> HxError,
+) -> Result<crate::http::Fetched> {
+    crate::http::fetch(request, limit, trace).await.map_err(|e| {
+        wrap(match e {
+            FetchError::Network(m) => m,
+            FetchError::TooLarge => format!("response vượt {} KiB", limit / 1024),
+        })
+    })
 }
 
 fn is_id(v: &str) -> bool {
@@ -429,77 +439,39 @@ pub struct Token {
     pub expires_in: Option<u64>,
 }
 
-/// Port of `requestUserToken`. The password is never put in an error.
-pub async fn request_user_token(app_key: &str, username: &str, password: &str, rest_base: &str) -> Result<Token> {
+/// Port of `requestUserToken`. The password is never put in an error (nor in the log).
+pub async fn request_user_token(
+    app_key: &str,
+    username: &str,
+    password: &str,
+    rest_base: &str,
+    account_id: uuid::Uuid,
+) -> Result<Token> {
     let (org, app) = app_key.split_once('#').filter(|_| is_app_key(app_key)).ok_or_else(|| HxError::Invalid("App key sai".into()))?;
     if username.is_empty() || password.is_empty() {
         return Err(HxError::Invalid("Cần username và hxPwd để lấy token".into()));
     }
     let origin = easemob_origin(rest_base)?;
     let client = crate::lit::http_client().map_err(|e| HxError::Token(e.to_string()))?;
-    let net = |e: reqwest::Error| HxError::Token(e.without_url().to_string());
-    let mut response = client
+    let request = client
         .post(format!("{origin}/{org}/{app}/token"))
         .header("accept", "application/json")
         .header("content-type", "application/json")
-        .body(serde_json::json!({ "grant_type": "password", "username": username, "password": password }).to_string())
-        .send()
-        .await
-        .map_err(net)?;
-    let status = response.status();
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(net)? {
-        if body.len() + chunk.len() > MAX_FRAME_BYTES {
-            return Err(HxError::Token("response vượt 1 MiB".into()));
-        }
-        body.extend_from_slice(&chunk);
-    }
+        .body(serde_json::json!({ "grant_type": "password", "username": username, "password": password }).to_string());
+    let trace = Trace { account_id: Some(account_id), service: "Easemob: token" };
+    let response = fetch(request, MAX_FRAME_BYTES, trace, HxError::Token).await?;
+    let status = response.status;
     let data: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|_| HxError::Token(format!("JSON không hợp lệ (HTTP {})", status.as_u16())))?;
+        serde_json::from_slice(&response.body).map_err(|_| HxError::Token(format!("JSON không hợp lệ (HTTP {status})")))?;
     match data.get("access_token").and_then(|v| v.as_str()) {
-        Some(t) if status.is_success() && !t.is_empty() => {
+        Some(t) if (200..300).contains(&status) && !t.is_empty() => {
             Ok(Token { access_token: t.to_owned(), expires_in: data.get("expires_in").and_then(|v| v.as_u64()) })
         }
-        _ => Err(HxError::Token(format!("HTTP {}", status.as_u16()))),
+        _ => Err(HxError::Token(format!("HTTP {status}"))),
     }
 }
 
-// ---------- TCP handshake ----------
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HandshakeStep {
-    pub step: &'static str,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub code: String,
-    pub accepted: bool,
-}
-
-/// Port of `readResponse`.
-fn read_response(payload: &[u8], step: &'static str) -> Result<HandshakeStep> {
-    let outer = read_fields(payload)?;
-    let body = read_fields(bytes_field(&outer, 9)?)?;
-    let status = read_fields(bytes_field(&body, if step == "login" { 8 } else { 1 })?)?;
-    let kind = get(&outer, 8).map(Value::text).unwrap_or_default();
-    let code = get(&status, 1).map(Value::text).unwrap_or_default();
-    let expected = if step == "login" { "3" } else { "1" };
-    let accepted = kind == expected && code == "0";
-    Ok(HandshakeStep { step, kind, code, accepted })
-}
-
-async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>> {
-    let io = |e: std::io::Error| HxError::Tcp(e.kind().to_string());
-    let mut len = [0u8; 4];
-    stream.read_exact(&mut len).await.map_err(io)?;
-    let len = u32::from_be_bytes(len) as usize;
-    if len == 0 || len > MAX_FRAME_BYTES {
-        return Err(HxError::Tcp("độ dài frame không hợp lệ".into()));
-    }
-    let mut payload = vec![0u8; len];
-    stream.read_exact(&mut payload).await.map_err(io)?;
-    Ok(payload)
-}
+// ---------- TCP ----------
 
 /// Server acceptance of one sent message (not delivery or read).
 #[derive(Debug, Clone, PartialEq)]
@@ -509,57 +481,6 @@ pub struct SendAck {
     pub accepted: bool,
 }
 
-/// Port of `connectAndCheck`: login, followup, then either close or send
-/// `message` and wait for its ACK. The whole run shares one `timeout`.
-pub async fn connect(
-    host: &str,
-    port: u16,
-    login_frame: &[u8],
-    message: Option<&TextMessage>,
-    timeout: Duration,
-) -> Result<(Vec<HandshakeStep>, Option<SendAck>)> {
-    let mut sent = false;
-    let run = async {
-        let io = |e: std::io::Error| HxError::Tcp(e.kind().to_string());
-        let mut stream = TcpStream::connect((host, port)).await.map_err(io)?;
-        let mut steps = Vec::new();
-        stream.write_all(login_frame).await.map_err(io)?;
-        for step in ["login", "followup"] {
-            let response = read_response(&read_frame(&mut stream).await?, step)?;
-            steps.push(response.clone());
-            if !response.accepted {
-                return Err(HxError::Rejected { step, kind: response.kind, code: response.code });
-            }
-            if step == "login" {
-                stream.write_all(&FOLLOWUP_FRAME).await.map_err(io)?;
-            }
-        }
-        let mut ack = None;
-        if let Some(message) = message {
-            sent = true;
-            stream.write_all(&message.frame).await.map_err(io)?;
-            // Other frames (e.g. queued incoming messages) are skipped until ours is acknowledged.
-            ack = loop {
-                if let Some(found) = read_send_response(&read_frame(&mut stream).await?, &message.local_id)? {
-                    break Some(found);
-                }
-            };
-        }
-        let _ = stream.shutdown().await;
-        Ok((steps, ack))
-    };
-    let result = match tokio::time::timeout(timeout, run).await {
-        Ok(r) => r,
-        Err(_) => Err(HxError::Timeout),
-    };
-    match result {
-        Ok((_, Some(ack))) if !ack.accepted => Err(HxError::SendRejected(ack.code)),
-        Err(e) if sent => Err(HxError::SendUnknown(e.to_string())),
-        other => other,
-    }
-}
-
-/// Login + followup only; sends nothing.
 /// Opens a TCP connection and closes it at once: is the endpoint reachable, and
 /// how fast. Sends nothing, so it logs no one in (or out).
 pub async fn probe(host: &str, port: u16, timeout: Duration) -> std::result::Result<Duration, String> {
@@ -572,10 +493,6 @@ pub async fn probe(host: &str, port: u16, timeout: Duration) -> std::result::Res
         Ok(Err(e)) => Err(e.kind().to_string()),
         Err(_) => Err(format!("quá {} s", timeout.as_secs())),
     }
-}
-
-pub async fn connect_and_check(host: &str, port: u16, login_frame: &[u8], timeout: Duration) -> Result<Vec<HandshakeStep>> {
-    Ok(connect(host, port, login_frame, None, timeout).await?.0)
 }
 
 // ---------- text message ----------
@@ -630,7 +547,7 @@ fn is_server_id(v: &str) -> bool {
 }
 
 /// Port of `readSendResponse`: `None` for frames that are not our ACK.
-fn read_send_response(payload: &[u8], local_id: &str) -> Result<Option<SendAck>> {
+pub(crate) fn read_send_response(payload: &[u8], local_id: &str) -> Result<Option<SendAck>> {
     let outer = read_fields(payload)?;
     if get(&outer, 8).map(Value::text).as_deref() != Some("0") {
         return Ok(None);
@@ -784,8 +701,15 @@ pub fn decode_message(encoded: &str) -> Result<Option<ChatMessage>> {
     if STANDARD.encode(&bytes) != encoded {
         return Err(history_err("base64 không chuẩn"));
     }
+    Ok(decode_meta(&bytes)?.map(|(message, _)| message))
+}
+
+/// One `Meta` (as in history and in SYNC frames). Returns `None` for non-chat
+/// namespaces, else the message with its body type (0 normal, 1 chat, 2 group
+/// chat, 3 chat room, 4 read ack, 5 delivery ack, 6 recall, ...).
+pub fn decode_meta(bytes: &[u8]) -> Result<Option<(ChatMessage, u64)>> {
     let bad = |_| history_err("protobuf tin nhắn sai");
-    let meta = read_fields(&bytes).map_err(bad)?;
+    let meta = read_fields(bytes).map_err(bad)?;
     let id = last_varint(&meta, 1).filter(|&v| v != 0).ok_or_else(|| history_err("tin nhắn thiếu server ID"))?;
     if last_varint(&meta, 5).unwrap_or(0) != 1 {
         return Ok(None);
@@ -807,14 +731,15 @@ pub fn decode_message(encoded: &str) -> Result<Option<ChatMessage>> {
             custom_event: last_text(&c, 19),
         });
     }
-    Ok(Some(ChatMessage {
+    let message = ChatMessage {
         id: id.to_string(),
         from: jid_name(&body, 2).or_else(|| jid_name(&meta, 2)),
         to: jid_name(&body, 3).or_else(|| jid_name(&meta, 3)),
         timestamp: last_varint(&meta, 4),
         contents,
         sender: sender_of(&body),
-    }))
+    };
+    Ok(Some((message, last_varint(&body, 1).unwrap_or(0))))
 }
 
 /// Who is reading which conversation.
@@ -893,37 +818,32 @@ pub fn parse_history(t: &HistoryTarget, json: &serde_json::Value) -> Result<Hist
 }
 
 /// One `messageroaming` page with a user token. Read-only: sends nothing.
-pub async fn fetch_history(t: &HistoryTarget<'_>, token: &str, limit: u32, cursor: Option<&str>) -> Result<HistoryPage> {
+pub async fn fetch_history(
+    t: &HistoryTarget<'_>,
+    token: &str,
+    limit: u32,
+    cursor: Option<&str>,
+    account_id: uuid::Uuid,
+) -> Result<HistoryPage> {
     let (url, body) = history_request(t, limit, cursor)?;
     if token.is_empty() {
         return Err(HxError::Invalid("Thiếu access token Hyphenate".into()));
     }
     let client = crate::lit::http_client().map_err(|e| HxError::History(e.to_string()))?;
-    let net = |e: reqwest::Error| HxError::History(e.without_url().to_string());
-    let mut response = client
+    let request = client
         .post(url)
         .bearer_auth(token)
         .header("accept", "application/json")
         .header("content-type", "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .map_err(net)?;
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(HxError::Unauthorized);
+        .body(body.to_string());
+    let trace = Trace { account_id: Some(account_id), service: "Easemob: lịch sử" };
+    let response = fetch(request, MAX_HISTORY_BYTES, trace, HxError::History).await?;
+    match response.status {
+        401 => return Err(HxError::Unauthorized),
+        200..300 => {}
+        status => return Err(HxError::History(format!("HTTP {status}"))),
     }
-    let mut raw = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(net)? {
-        if raw.len() + chunk.len() > MAX_HISTORY_BYTES {
-            return Err(history_err("response vượt 2 MiB"));
-        }
-        raw.extend_from_slice(&chunk);
-    }
-    if !status.is_success() {
-        return Err(HxError::History(format!("HTTP {}", status.as_u16())));
-    }
-    let json: serde_json::Value = serde_json::from_slice(&raw).map_err(|_| history_err("JSON không hợp lệ"))?;
+    let json: serde_json::Value = serde_json::from_slice(&response.body).map_err(|_| history_err("JSON không hợp lệ"))?;
     parse_history(t, &json)
 }
 
@@ -935,8 +855,6 @@ mod tests {
     // Generated from scripts/test/helpers.ts (templateB64) and scripts/src/hyphenate.
     const TEMPLATE: &str = "EiIKCW9yZzEjYXBwMRIIbG92ZV8xMDAaC2Vhc2Vtb2IuY29tQANKMwgFkgEieyJ0b2tlbiI6IiIsInZpZCI6InYxIiwiY2lkIjoiYzEifaAB////////////AWAH";
     const LOGIN_FRAME_HEX: &str = "0000006412220a096f726731236170703112086c6f76655f3130301a0b656173656d6f622e636f6d40034a3a08059201297b22746f6b656e223a22746f6b2d313233222c22766964223a227631222c22636964223a226331227da001ffffffffffffffffff016007";
-    const LOGIN_OK: &str = "0000000840034a0442020800";
-    const LOGIN_BAD: &str = "0000000840034a0442020805";
     const FOLLOW_OK: &str = "0000000840014a040a020800";
 
     fn unhex(s: &str) -> Vec<u8> {
@@ -1053,59 +971,12 @@ mod tests {
         }
     }
 
-    async fn fake_server(replies: Vec<&'static str>) -> (u16, tokio::task::JoinHandle<Vec<Vec<u8>>>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let handle = tokio::spawn(async move {
-            let (mut sock, _) = listener.accept().await.unwrap();
-            let mut received = Vec::new();
-            for reply in replies {
-                let Ok(payload) = read_frame(&mut sock).await else { break };
-                received.push(payload);
-                sock.write_all(&unhex(reply)).await.unwrap();
-            }
-            received
-        });
-        (port, handle)
-    }
-
-    #[tokio::test]
-    async fn handshake_logs_in_then_sends_followup() {
-        let (port, server) = fake_server(vec![LOGIN_OK, FOLLOW_OK]).await;
-        let login = unhex(LOGIN_FRAME_HEX);
-        let steps = connect_and_check("127.0.0.1", port, &login, Duration::from_secs(2)).await.unwrap();
-        assert_eq!(steps.iter().map(|s| (s.step, s.accepted)).collect::<Vec<_>>(), [("login", true), ("followup", true)]);
-        let received = server.await.unwrap();
-        assert_eq!(received[0], login[4..]);
-        assert_eq!(received[1], FOLLOWUP_FRAME[4..]);
-    }
-
-    #[tokio::test]
-    async fn handshake_reports_rejection_timeout_and_refusal() {
-        let (port, _server) = fake_server(vec![LOGIN_BAD]).await;
-        let err = connect_and_check("127.0.0.1", port, &unhex(LOGIN_FRAME_HEX), Duration::from_secs(2)).await.unwrap_err();
-        assert_eq!(err.to_string(), "Server chat từ chối bước login (type=3, code=5)");
-
-        let silent = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = silent.local_addr().unwrap().port();
-        let err = connect_and_check("127.0.0.1", port, &unhex(LOGIN_FRAME_HEX), Duration::from_millis(200)).await.unwrap_err();
-        assert!(matches!(err, HxError::Timeout));
-        drop(silent);
-
-        let err = connect_and_check("127.0.0.1", port, &unhex(LOGIN_FRAME_HEX), Duration::from_secs(2)).await.unwrap_err();
-        assert!(matches!(err, HxError::Tcp(_)), "{err}");
-    }
-
     // From scripts/src/hyphenate/message.ts with localId 17314150001230042 and a fixed markId.
     const TXT_FRAME_HEX: &str = "00000089080040004a80010a7e08da81a5838be4e01e1a0a12086c6f76655f323030280132650801120a12086c6f76655f3130301a0a12086c6f76655f32303022120800120e58696e206368c3a06f20f09f918b2a350a0b6d61726b5f6d73675f69641007322430623863376135322d316431652d346633652d396135352d3132333435363738396162635800";
     const LOCAL_ID: u64 = 17314150001230042;
     const MARK_ID: &str = "0b8c7a52-1d1e-4f3e-9a55-123456789abc";
     const ACK_OK: &str = "40004a170a02080010da81a5838be4e01e189582a6efc79e849111";
     const ACK_REJECTED: &str = "40004a0e0a0308fc0310da81a5838be4e01e";
-
-    fn framed(payload_hex: &str) -> Vec<u8> {
-        frame(&unhex(payload_hex))
-    }
 
     #[test]
     fn text_message_and_acks_match_typescript() {
@@ -1135,57 +1006,6 @@ mod tests {
         assert!(build_text_message("love_100", "love_200", &"é".repeat(MAX_TEXT_BYTES / 2), LOCAL_ID, MARK_ID).is_ok());
         let id = new_local_id(1731415000123).unwrap();
         assert!((17314150001230000..17314150001240000).contains(&id));
-    }
-
-    /// Replies to login and followup, then to the message with `after_send` frames.
-    async fn send_server(after_send: Vec<Vec<u8>>) -> (u16, tokio::task::JoinHandle<Vec<Vec<u8>>>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let handle = tokio::spawn(async move {
-            let (mut sock, _) = listener.accept().await.unwrap();
-            let mut received = Vec::new();
-            for reply in [unhex(LOGIN_OK), unhex(FOLLOW_OK)] {
-                received.push(read_frame(&mut sock).await.unwrap());
-                sock.write_all(&reply).await.unwrap();
-            }
-            if let Ok(msg) = read_frame(&mut sock).await {
-                received.push(msg);
-                for f in after_send {
-                    sock.write_all(&f).await.unwrap();
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            received
-        });
-        (port, handle)
-    }
-
-    #[tokio::test]
-    async fn sends_one_message_and_waits_for_its_ack() {
-        let m = build_text_message("love_100", "love_200", "Xin chào 👋", LOCAL_ID, MARK_ID).unwrap();
-        // ACK for local id 1 (another message) first: must be skipped.
-        let other_ack = "40004a100a0208001001189582a6efc79e849111";
-        let (port, server) = send_server(vec![framed(other_ack), framed(ACK_OK)]).await;
-        let login = unhex(LOGIN_FRAME_HEX);
-        let (steps, ack) = connect("127.0.0.1", port, &login, Some(&m), Duration::from_secs(2)).await.unwrap();
-        assert_eq!(steps.len(), 2);
-        assert_eq!(ack.unwrap().server_id, "1234567890123456789");
-        let received = server.await.unwrap();
-        assert_eq!(received[2], m.frame[4..]);
-    }
-
-    #[tokio::test]
-    async fn send_rejection_and_missing_ack_are_reported() {
-        let m = build_text_message("love_100", "love_200", "hi", LOCAL_ID, MARK_ID).unwrap();
-        let login = unhex(LOGIN_FRAME_HEX);
-
-        let (port, _s) = send_server(vec![framed(ACK_REJECTED)]).await;
-        let err = connect("127.0.0.1", port, &login, Some(&m), Duration::from_secs(2)).await.unwrap_err();
-        assert!(matches!(err, HxError::SendRejected(ref c) if c == "508"), "{err}");
-
-        let (port, _s) = send_server(vec![]).await;
-        let err = connect("127.0.0.1", port, &login, Some(&m), Duration::from_millis(500)).await.unwrap_err();
-        assert!(matches!(err, HxError::SendUnknown(_)), "{err}");
     }
 
     // ---------- history ----------

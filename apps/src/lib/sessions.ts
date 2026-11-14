@@ -9,7 +9,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Account } from "./api";
 import { litQueries, queryKeys, settingsQuery } from "./queries";
-import { connectTcp, setTcpStatus } from "./tcp-status";
+import { connectTcp, disconnectTcp, setTcpStatus } from "./tcp-status";
 
 export type SessionState =
   | { state: "out" }
@@ -82,9 +82,9 @@ export async function login(qc: QueryClient, account: Account): Promise<boolean>
 }
 
 /**
- * With "Tự động kết nối TCP" on, connects right
- * after login. Awaited, so "Đăng nhập tất cả" connects one account at a time.
- * A failure only shows in the TCP status; the login itself succeeded.
+ * With "Tự động kết nối TCP" on, opens the live connection right after login
+ * (it connects in the background). A failure only shows in the TCP status;
+ * the login itself succeeded.
  */
 async function autoConnect(qc: QueryClient, accountId: string): Promise<void> {
   try {
@@ -95,9 +95,10 @@ async function autoConnect(qc: QueryClient, accountId: string): Promise<void> {
   }
 }
 
-/** Forgets the state and every cached response of the account. */
+/** Closes the live connection and forgets the state and every cached response of the account. */
 export function logout(qc: QueryClient, accountId: string): void {
   set(accountId, null);
+  void disconnectTcp(accountId).catch(() => {});
   setTcpStatus(accountId, null);
   qc.removeQueries({ predicate: (q) => q.queryKey.includes(accountId) });
 }

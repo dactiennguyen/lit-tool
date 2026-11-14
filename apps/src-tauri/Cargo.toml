@@ -34,7 +34,7 @@ cbc = { version = "0.2", features = ["alloc", "block-padding"] }
 base64 = "0.23"
 getrandom = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
-tokio = { version = "1", features = ["net", "io-util", "time", "sync"] }
+tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros"] }
 rusqlite = { version = "0.42.0", features = ["bundled"] }
 tauri-plugin-updater = "2"
 

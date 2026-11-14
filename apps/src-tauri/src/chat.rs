@@ -1,4 +1,5 @@
-//! Chat commands: connection check, history and sending one text message.
+//! Chat commands: history and sending one text message (the live connection
+//! that hears new messages is in listen.rs).
 //!
 //! The IM server comes from the app key in the settings (its server list is
 //! fetched once and saved, settings.rs). Each account brings its own IM
@@ -19,12 +20,10 @@ use tauri::Manager;
 use uuid::Uuid;
 
 use crate::accounts::AccountRegistry;
-use crate::hx::{self, HandshakeStep, HistoryPage, HistoryTarget, HxError, LoginTemplate};
+use crate::hx::{self, HistoryPage, HistoryTarget, HxError, LoginTemplate};
 use crate::lit::{self, LitError};
 use crate::settings::SettingsStore;
 
-const SEND_TIMEOUT: Duration = Duration::from_secs(15);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 /// Used when the token response has no `expires_in`.
 const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(3600);
@@ -127,26 +126,26 @@ impl HxTokens {
 }
 
 /// Everything needed to talk to the IM server as one account.
-struct Session {
-    account_id: Uuid,
-    host: String,
-    port: u16,
+pub(crate) struct Session {
+    pub account_id: Uuid,
+    pub host: String,
+    pub port: u16,
     rest_base: String,
     /// This account's own login frame (token not filled in).
-    template: LoginTemplate,
+    pub template: LoginTemplate,
     password: String,
     fingerprint: [u8; 32],
 }
 
 /// Where the token came from: only a cached one is worth replacing on rejection.
 #[derive(PartialEq)]
-enum TokenSource {
+pub(crate) enum TokenSource {
     Cached,
     Fresh,
 }
 
 impl Session {
-    async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
+    pub async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
         let handle = app.clone();
         // Secret reads touch the disk (and, once, the old keychain): keep them off the async workers.
         let ((username, password), client) = tauri::async_runtime::spawn_blocking(move || {
@@ -171,7 +170,7 @@ impl Session {
         })
     }
 
-    async fn token(&self, app: &tauri::AppHandle) -> Result<(String, TokenSource, Option<u64>)> {
+    pub async fn token(&self, app: &tauri::AppHandle) -> Result<(String, TokenSource, Option<u64>)> {
         let tokens = app.state::<HxTokens>();
         let fp = self.fingerprint;
         if let Some(t) = tokens.get(self.account_id, &fp) {
@@ -186,7 +185,14 @@ impl Session {
             return Err(HxError::Token(format!("{e} (thử lại sau ít phút)")).into());
         }
         let result =
-            hx::request_user_token(&self.template.app_key, &self.template.username, &self.password, &self.rest_base).await;
+            hx::request_user_token(
+                &self.template.app_key,
+                &self.template.username,
+                &self.password,
+                &self.rest_base,
+                self.account_id,
+            )
+            .await;
         let failure = result.as_ref().err().map(|e| match e {
             HxError::Token(m) => m.clone(),
             other => other.to_string(),
@@ -197,7 +203,7 @@ impl Session {
         Ok((t.access_token, TokenSource::Fresh, t.expires_in))
     }
 
-    fn forget_token(&self, app: &tauri::AppHandle) {
+    pub fn forget_token(&self, app: &tauri::AppHandle) {
         app.state::<HxTokens>().forget(self.account_id);
     }
 }
@@ -224,12 +230,12 @@ pub async fn hx_history(
     };
     hx::history_request(&target, limit, cursor.as_deref())?; // validate before any network call
     let (token, source, _) = session.token(&app).await?;
-    match hx::fetch_history(&target, &token, limit, cursor.as_deref()).await {
+    match hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await {
         // A cached token may have been revoked: a read can safely be repeated once with a new one.
         Err(HxError::Unauthorized) if source == TokenSource::Cached => {
             session.forget_token(&app);
             let (token, ..) = session.token(&app).await?;
-            Ok(hx::fetch_history(&target, &token, limit, cursor.as_deref()).await?)
+            Ok(hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await?)
         }
         Err(HxError::Unauthorized) => {
             session.forget_token(&app);
@@ -250,8 +256,9 @@ pub struct SendOutcome {
     pub metadata_error: Option<String>,
 }
 
-/// Sends exactly one text message over a fresh TCP login, waits for the server
-/// ACK, then disconnects. With `first_contact`, the Litmatch metadata writes the
+/// Sends exactly one text message and waits for the server ACK: through the
+/// account's live connection when one is open (listen.rs), else over a fresh
+/// TCP login that is closed afterwards. With `first_contact`, the Litmatch metadata writes the
 /// phone app makes for a new conversation follow (`accost_count`, `conversation`,
 /// `conversation/source`). Nothing is retried after the message frame is written.
 #[tauri::command]
@@ -277,27 +284,10 @@ pub async fn hx_send_text(
     let message =
         hx::build_text_message(&session.template.username, &to, &text, local_id, &Uuid::new_v4().to_string())?;
 
-    let send = |token: String| {
-        let (host, port, template, message) = (&session.host, session.port, &session.template, &message);
-        async move {
-            let login = hx::build_login_frame(template, &token)?;
-            hx::connect(host, port, &login, Some(message), SEND_TIMEOUT).await
-        }
-    };
-    let (token, source, _) = session.token(&app).await?;
-    let result = match send(token).await {
-        // Rejected at login, so the message was never written: safe to try once with a new token.
-        Err(HxError::Rejected { step: "login", .. }) if source == TokenSource::Cached => {
-            session.forget_token(&app);
-            let (token, ..) = session.token(&app).await?;
-            send(token).await
-        }
-        other => other,
-    };
-    if matches!(result, Err(HxError::Rejected { step: "login", .. })) {
-        session.forget_token(&app);
+    let ack = crate::listen::send(&app, &session, message.clone()).await?;
+    if !ack.accepted {
+        return Err(HxError::SendRejected(ack.code).into());
     }
-    let ack = result?.1.ok_or_else(|| HxError::SendUnknown("không có ACK".into()))?;
 
     let metadata_error = if first_contact {
         lit::sync_metadata(&app, account_id, &to, &lit::metadata_plan(true)).await.err().map(|e| e.to_string())
@@ -305,43 +295,6 @@ pub async fn hx_send_text(
         None
     };
     Ok(SendOutcome { server_id: ack.server_id, local_id: message.local_id, metadata_error })
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckResult {
-    pub username: String,
-    pub app_key: String,
-    pub host: String,
-    pub port: u16,
-    /// Set when a new token was requested for this check.
-    pub token_expires_in: Option<u64>,
-    pub steps: Vec<HandshakeStep>,
-}
-
-/// Get a token, log in over TCP, run the followup and disconnect. Sends no chat.
-#[tauri::command]
-pub async fn hx_check_connection(app: tauri::AppHandle, account_id: Uuid) -> Result<CheckResult> {
-    let session = Session::load(&app, account_id).await?;
-    let (token, _, token_expires_in) = session.token(&app).await?;
-    let login = hx::build_login_frame(&session.template, &token)?;
-    let steps = match hx::connect_and_check(&session.host, session.port, &login, HANDSHAKE_TIMEOUT).await {
-        Ok(steps) => steps,
-        Err(e) => {
-            if matches!(e, HxError::Rejected { step: "login", .. }) {
-                session.forget_token(&app);
-            }
-            return Err(e.into());
-        }
-    };
-    Ok(CheckResult {
-        username: session.template.username.clone(),
-        app_key: session.template.app_key.clone(),
-        host: session.host.clone(),
-        port: session.port,
-        token_expires_in,
-        steps,
-    })
 }
 
 /// One server of the saved list, and whether a TCP connection to it opens.

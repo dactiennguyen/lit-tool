@@ -2,7 +2,7 @@ import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQ
 import type { ChatMessage, Conversation } from "./lit-types";
 import { rememberPeers, rememberSender } from "./peer-directory";
 import { compareIds } from "./read-markers";
-import { connectTcp, isTcpError, setTcpStatus } from "./tcp-status";
+import { connectTcp, getTcpStatus, isLive, isTcpError, setTcpStatus, useTcpStatus } from "./tcp-status";
 import { api, type Account, type AccountPatch, type AppSettings, type NewAccount, type SettingsPatch } from "./api";
 
 export const queryKeys = {
@@ -115,8 +115,8 @@ const HISTORY_PAGE = 20;
 
 /**
  * Message history of one conversation, newest page first; `fetchNextPage` loads
- * older messages. Polls the newest page while the window is focused, since
- * there is no live connection for incoming messages.
+ * older messages. New messages come from the live connection (hx-live.ts);
+ * without one, the newest page is polled while the window is focused.
  */
 export function useHistory(
   accountId: string | undefined,
@@ -124,6 +124,7 @@ export function useHistory(
   options: { poll?: boolean } = {},
 ) {
   const qc = useQueryClient();
+  const live = useTcpStatus(accountId ?? "").state === "live";
   return useInfiniteQuery({
     queryKey: historyKey(accountId, conversation?.id),
     queryFn: async ({ pageParam }) => {
@@ -141,7 +142,7 @@ export function useHistory(
     // Polling refetches every loaded page, so keep it to the first one.
     // Not after an error either, so a broken login is not retried every 20 s.
     refetchInterval: (q) =>
-      options.poll && q.state.status !== "error" && (q.state.data?.pages.length ?? 0) <= 1 ? 20_000 : false,
+      options.poll && !live && q.state.status !== "error" && (q.state.data?.pages.length ?? 0) <= 1 ? 20_000 : false,
     refetchIntervalInBackground: false,
   });
 }
@@ -154,10 +155,11 @@ const LIST_POLL_MS = 60_000;
 
 /**
  * Last message of each conversation (`null` when there is none), for previews
- * and unread dots. One small `messageroaming` request per conversation,
- * refreshed every minute while the window is focused.
+ * and unread dots. One small `messageroaming` request per conversation, then
+ * kept current by the live connection, or refreshed every minute without one.
  */
 export function useLatestMessages(accountId: string | undefined, conversations: readonly Conversation[], enabled: boolean) {
+  const live = useTcpStatus(accountId ?? "").state === "live";
   const list = conversations
     .filter((c) => c.conversationType === 0 || c.conversationType === 1)
     .slice(0, PREVIEW_LIMIT);
@@ -173,7 +175,7 @@ export function useLatestMessages(accountId: string | undefined, conversations: 
       retry: false,
       staleTime: 30_000,
       // Stop polling after an error (e.g. bad IM credentials); "Tải lại" or a new mount retries.
-      refetchInterval: (q: { state: { status: string } }) => (q.state.status === "error" ? false : LIST_POLL_MS),
+      refetchInterval: (q: { state: { status: string } }) => (live || q.state.status === "error" ? false : LIST_POLL_MS),
       refetchIntervalInBackground: false,
     })),
     combine: (results) => {
@@ -190,10 +192,14 @@ export function useSendText(accountId: string) {
   return useMutation({
     mutationFn: (v: { to: string; text: string; firstContact: boolean }) =>
       api.hx.sendText(accountId, v.to, v.text, v.firstContact),
-    // A send logs in over TCP too: its outcome updates the connection status.
-    onSuccess: () => setTcpStatus(accountId, { state: "ok", at: Date.now(), via: "send" }),
+    // Without a live connection a send logs in over TCP itself: its outcome is the connection status.
+    onSuccess: () => {
+      if (!isLive(getTcpStatus(accountId))) setTcpStatus(accountId, { state: "ok", at: Date.now(), via: "send" });
+    },
     onError: (error) => {
-      if (isTcpError(error.message)) setTcpStatus(accountId, { state: "error", at: Date.now(), message: error.message });
+      if (!isLive(getTcpStatus(accountId)) && isTcpError(error.message)) {
+        setTcpStatus(accountId, { state: "error", at: Date.now(), message: error.message });
+      }
     },
     onSettled: (_data, _error, v) =>
       Promise.all([
@@ -229,8 +235,8 @@ export const useUpdateAccount = () =>
 
 export const useRemoveAccount = () => useAccountsMutation((account: Account) => api.accounts.remove(account.id));
 
-/** An action, not cached data: each run opens a fresh TCP login. The result is kept in tcp-status. */
-export const useCheckHxConnection = () => useMutation({ mutationFn: connectTcp });
+/** Opens the live connection; its state is kept in tcp-status. */
+export const useConnectTcp = () => useMutation({ mutationFn: connectTcp });
 
 /** Reachability of every saved chat server, checked fresh each time it is shown. */
 export function useServerProbe(enabled: boolean) {
