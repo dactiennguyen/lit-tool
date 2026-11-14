@@ -16,6 +16,7 @@
     "im:history": "node src/cli/conversations.ts",
     "account": "node src/cli/account-info.ts",
     "home:online": "node src/cli/home-online.ts",
+    "feed": "node src/cli/feed.ts",
     "user:info": "node src/cli/user-info.ts",
     "user:me": "node src/cli/user-me.ts",
     "startup": "node src/cli/startup-api.ts",

@@ -65,6 +65,54 @@ export interface OnlineUsersQuery {
   from_page?: string;
 }
 
+export interface FeedPage {
+  name: string;
+  translate_name: string;
+  priority: number;
+  special: boolean;
+  sub_pages: FeedPage[];
+}
+
+export interface FeedPageStructure {
+  pages: FeedPage[];
+}
+
+export type ForYouFeedType = 'Trends' | 'Associate';
+
+export interface FeedQuery {
+  start_pos?: number;
+  num?: number;
+}
+
+export interface FeedItem {
+  id: string;
+  user_id?: ObjectId;
+  content?: string;
+  user_info?: Partial<UserInfo> | null;
+  create_time?: { time: UnixSeconds; time_desc?: string };
+  pics?: FileId[];
+  audios?: FileId[];
+  video?: string | null;
+  tags?: string[];
+  feed_type?: number;
+  like_num?: number;
+  comment_num?: number;
+  reaction_num?: number;
+  repost_num?: number;
+  liked?: boolean;
+  user_followed?: boolean;
+  extras?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface FeedListData {
+  feeds: FeedItem[];
+  has_next: boolean;
+  next_start: number;
+  pinned?: FeedItem | null;
+  [key: string]: unknown;
+}
+
 export interface UserInfoQuery {
   from?: string;
   source?: string;

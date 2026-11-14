@@ -4,6 +4,7 @@ import { fetchGet, isLitAccepted, type LitResponse as RawResponse } from './clie
 import { loadEnvProfile, type LitProfile } from './profile.ts';
 import { buildGetRequest, buildUserInfoRequest, buildUserMeRequest, type GetRequest } from './request.ts';
 import type {
+  FeedListData, FeedPageStructure, FeedQuery, ForYouFeedType,
   LitApiResponse, OnlineUsersData, OnlineUsersQuery, UserInfo, UserInfoMe,
   UserInfoQuery, Wallet,
 } from './types.ts';
@@ -72,4 +73,26 @@ export async function getOnlineUsers({ profile = loadEnvProfile(), query = {} }:
 
 export async function getAccountInfo({ profile = loadEnvProfile() }: ApiOptions = {}): Promise<ApiResult<Wallet>> {
   return fetchJsonGet<Wallet>(buildGetRequest('account/account_info', profile));
+}
+
+export async function getFeedPageStructure({ profile = loadEnvProfile() }: ApiOptions = {}): Promise<ApiResult<FeedPageStructure>> {
+  return fetchJsonGet<FeedPageStructure>(buildGetRequest('feed/feed_page_structure', profile));
+}
+
+export interface FeedOptions extends ApiOptions {
+  query?: FeedQuery;
+}
+
+export async function getForYouFeeds({ profile = loadEnvProfile(), type = 'Trends', query = {} }:
+  FeedOptions & { type?: ForYouFeedType } = {}): Promise<ApiResult<FeedListData>> {
+  if (type !== 'Trends' && type !== 'Associate') throw Error('Feed type must be Trends or Associate');
+  const { start_pos = 0, num = 20 } = query;
+  const startPos = parseIntInRange(start_pos, 0, 2_147_483_647, 'start_pos');
+  const pageSize = parseIntInRange(num, 1, 50, 'num');
+  const endpoint = type === 'Trends' ? 'feed/hq' : 'feed/sep_page_feeds/Associate';
+  return fetchJsonGet<FeedListData>(buildGetRequest(endpoint, profile, { start_pos: startPos, num: pageSize }));
+}
+
+export async function getPopularFeeds(options: FeedOptions = {}): Promise<ApiResult<FeedListData>> {
+  return getForYouFeeds({ ...options, type: 'Trends' });
 }
