@@ -95,6 +95,8 @@ OpenIM trong run 02 chỉ thấy request identifier `1001`, `4301`, không thấ
 
 ## 4. Vì sao tin Node không hiện trên điện thoại?
 
+**Phạm vi:** mục này ghi nhận cache trên thiết bị đăng nhập tài khoản gửi ở lượt thử cũ. Không áp dụng kết luận “Node không tạo cache local” cho thiết bị người nhận. Lượt kiểm tra receiver ngày 2026-11-14 đã xác nhận SDK nhận và lưu tin; sự cố nằm ở danh sách hội thoại chưa cập nhật trước refresh. Xem [điều tra receiver và đối chứng B1](26-receiver-chat-list-refresh.md).
+
 ### Bằng chứng runtime mới
 
 Lúc 10:35:59, sau khi observer gửi đã detach, gọi đúng SDK `fetchHistoryMessages(target, Chat, 20, "", options)` với **`options.setIsSave(false)`**. Không gọi helper khôi phục của Litmatch, không chèn tin local, không xóa, không replay POST và không gửi thêm tin.
