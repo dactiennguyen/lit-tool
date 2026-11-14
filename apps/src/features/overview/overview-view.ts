@@ -13,11 +13,6 @@ export interface QueryState<T> {
 
 export interface AccountSummary {
   nickname: string | null;
-  session:
-    | { state: "unknown" }
-    | { state: "loading" }
-    | { state: "ok"; at: number }
-    | { state: "error"; message: string };
   diamonds: number | null;
   walletError: string | null;
   conversations: number | null;
@@ -31,7 +26,7 @@ function latest<T>(q: QueryState<T>): { data: T } | { error: Error } | null {
   return null;
 }
 
-/** Session state comes from the own-profile request (`user/get_info/me`). */
+/** Profile, wallet and conversation count; the login state lives in lib/sessions.ts. */
 export function summarize(
   me: QueryState<UserProfile>,
   wallet: QueryState<Wallet>,
@@ -42,13 +37,6 @@ export function summarize(
   const c = latest(conversations);
   return {
     nickname: m && "data" in m ? m.data.nickname : null,
-    session: me.isFetching
-      ? { state: "loading" }
-      : !m
-        ? { state: "unknown" }
-        : "error" in m
-          ? { state: "error", message: m.error.message }
-          : { state: "ok", at: me.dataUpdatedAt },
     diamonds: w && "data" in w ? w.data.diamonds : null,
     walletError: w && "error" in w ? w.error.message : null,
     conversations: c && "data" in c ? c.data.length : null,

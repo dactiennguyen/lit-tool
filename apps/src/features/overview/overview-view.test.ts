@@ -7,10 +7,9 @@ const q = <T,>(o: Partial<QueryState<T>> = {}): QueryState<T> => ({
 });
 
 describe("overview summary", () => {
-  it("is unknown before any check", () => {
+  it("is empty before any request", () => {
     const s = summarize(q(), q(), q());
-    expect(s.session).toEqual({ state: "unknown" });
-    expect([s.diamonds, s.conversations, s.walletError]).toEqual([null, null, null]);
+    expect([s.nickname, s.diamonds, s.conversations, s.walletError]).toEqual([null, null, null, null]);
   });
 
   it("reads profile, wallet and conversation count", () => {
@@ -19,16 +18,14 @@ describe("overview summary", () => {
       q({ data: makeWallet({ diamonds: 120 }), dataUpdatedAt: 5 }),
       q({ data: [{ conversationId: "a", conversationType: 0 }], dataUpdatedAt: 5 }),
     );
-    expect(s).toMatchObject({ nickname: "Mây", session: { state: "ok", at: 5 }, diamonds: 120, conversations: 1 });
+    expect(s).toMatchObject({ nickname: "Mây", diamonds: 120, conversations: 1 });
   });
 
   it("shows the newer of data and error", () => {
-    const old = makeProfile({ nickname: "Mây" });
-    const failedLater = summarize(q({ data: old, dataUpdatedAt: 1, error: new Error("sid expired"), errorUpdatedAt: 2 }), q(), q());
-    expect(failedLater.session).toEqual({ state: "error", message: "sid expired" });
-    const recovered = summarize(q({ data: old, dataUpdatedAt: 3, error: new Error("x"), errorUpdatedAt: 2 }), q(), q());
-    expect(recovered.session).toEqual({ state: "ok", at: 3 });
-    expect(summarize(q({ isFetching: true }), q(), q()).session).toEqual({ state: "loading" });
-    expect(summarize(q(), q({ error: new Error("bad"), errorUpdatedAt: 1 }), q()).walletError).toBe("bad");
+    const wallet = makeWallet({ diamonds: 7 });
+    const failedLater = summarize(q(), q({ data: wallet, dataUpdatedAt: 1, error: new Error("bad"), errorUpdatedAt: 2 }), q());
+    expect([failedLater.diamonds, failedLater.walletError]).toEqual([null, "bad"]);
+    const recovered = summarize(q(), q({ data: wallet, dataUpdatedAt: 3, error: new Error("x"), errorUpdatedAt: 2 }), q());
+    expect([recovered.diamonds, recovered.walletError]).toEqual([7, null]);
   });
 });

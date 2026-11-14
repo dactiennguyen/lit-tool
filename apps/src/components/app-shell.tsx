@@ -1,79 +1,64 @@
-import { Link, Outlet } from "@tanstack/react-router";
+import { Link, Outlet, useParams } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
-  CheckIcon,
-  ChevronsUpDownIcon,
   CloudIcon,
   LayoutDashboardIcon,
-  MessagesSquareIcon,
   MoonIcon,
-  RadioIcon,
+  PlusIcon,
   SettingsIcon,
   SunIcon,
-  UserRoundIcon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { AccountAvatar } from "@/components/account-avatar";
+import { SessionDot, sessionLabel } from "@/components/session-status";
+import { TcpIcon } from "@/components/tcp-status";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useActiveAccount } from "@/lib/active-account";
-import { useAccounts } from "@/lib/queries";
+import type { Account } from "@/lib/api";
+import { litQueries, useAccounts } from "@/lib/queries";
+import { useSession } from "@/lib/sessions";
+import { useTcpStatus } from "@/lib/tcp-status";
+import { cn } from "@/lib/utils";
 
-const NAV: {
-  to: "/overview" | "/accounts" | "/profile" | "/online" | "/chat" | "/settings";
-  label: string;
-  icon: LucideIcon;
-  /** Only shown once at least one account exists. */
-  needsAccount?: boolean;
-}[] = [
+const NAV: { to: "/overview" | "/accounts"; label: string; icon: LucideIcon }[] = [
   { to: "/overview", label: "Tổng quan", icon: LayoutDashboardIcon },
-  { to: "/accounts", label: "Tài khoản", icon: UsersIcon },
-  { to: "/profile", label: "Hồ sơ", icon: UserRoundIcon, needsAccount: true },
-  { to: "/online", label: "Đang online", icon: RadioIcon, needsAccount: true },
-  { to: "/chat", label: "Tin nhắn", icon: MessagesSquareIcon, needsAccount: true },
-  { to: "/settings", label: "Cài đặt", icon: SettingsIcon },
+  { to: "/accounts", label: "Quản lý account", icon: UsersIcon },
 ];
 
-export function AppShell() {
-  const { active } = useActiveAccount();
-  const nav = NAV.filter((item) => !item.needsAccount || active);
+const itemClass =
+  "flex items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
+const activeClass = "bg-sidebar-accent font-medium text-sidebar-accent-foreground";
 
+export function AppShell() {
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-        <div className="flex h-14 items-center gap-2 px-4">
+      <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+        <div className="flex h-14 shrink-0 items-center gap-2 px-4">
           <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <CloudIcon className="size-4" aria-hidden />
           </div>
           <span className="text-sm font-semibold tracking-tight">Sky Manager</span>
         </div>
 
-        <nav aria-label="Điều hướng chính" className="flex flex-1 flex-col gap-0.5 px-2 py-2">
-          {nav.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted-foreground transition-colors duration-150 outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-              activeProps={{ className: "bg-sidebar-accent font-medium text-sidebar-accent-foreground" }}
-            >
+        <nav aria-label="Điều hướng chính" className="flex shrink-0 flex-col gap-0.5 px-2 pb-2">
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <Link key={to} to={to} className={cn(itemClass, "h-9")} activeProps={{ className: activeClass }}>
               <Icon className="size-4" aria-hidden />
               {label}
             </Link>
           ))}
         </nav>
 
-        <div className="flex items-center gap-1 border-t p-2">
-          <AccountSwitcher />
+        <AccountList />
+
+        <div className="flex shrink-0 items-center gap-1 border-t p-2">
+          <Link to="/settings" className={cn(itemClass, "h-9 flex-1")} activeProps={{ className: activeClass }}>
+            <SettingsIcon className="size-4" aria-hidden />
+            Cài đặt
+          </Link>
           <ThemeToggle />
         </div>
       </aside>
@@ -85,50 +70,84 @@ export function AppShell() {
   );
 }
 
-function AccountSwitcher() {
-  const { data: accounts = [] } = useAccounts();
-  const { active, setActiveId } = useActiveAccount();
+/** Every account, vertically; the open one is highlighted. */
+function AccountList() {
+  const { data: accounts, isPending } = useAccounts();
+  const { accountId } = useParams({ strict: false });
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors duration-150 hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-        disabled={accounts.length === 0}
-        aria-label="Chọn account đang dùng"
-      >
-        {active ? (
-          <>
-            <AccountAvatar label={active.label} size="sm" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{active.label}</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {active.userId ? `ID ${active.userId}` : "Chưa có user ID"}
-              </span>
-            </span>
-          </>
-        ) : (
-          <span className="flex-1 truncate text-sm text-muted-foreground">Chưa có account</span>
-        )}
-        <ChevronsUpDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-60">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Account đang dùng</DropdownMenuLabel>
-          {accounts.map((a) => (
-            <DropdownMenuItem key={a.id} onClick={() => setActiveId(a.id)}>
-              <AccountAvatar label={a.label} size="sm" />
-              <span className="flex-1 truncate">{a.label}</span>
-              {a.id === active?.id && <CheckIcon className="size-4" aria-label="Đang dùng" />}
-            </DropdownMenuItem>
+    <section aria-labelledby="account-list-title" className="flex min-h-0 flex-1 flex-col border-t">
+      <div className="flex h-9 shrink-0 items-center justify-between pr-2 pl-4">
+        <h2 id="account-list-title" className="text-xs font-medium text-muted-foreground">
+          Account{accounts ? ` (${accounts.length})` : ""}
+        </h2>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="ghost" size="icon-sm" render={<Link to="/accounts" />} aria-label="Thêm account" />}
+          >
+            <PlusIcon aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent>Thêm account</TooltipContent>
+        </Tooltip>
+      </div>
+      {isPending ? (
+        <div className="space-y-1 px-2" aria-busy="true" aria-label="Đang tải account">
+          {Array.from({ length: 3 }, (_, i) => (
+            <Skeleton key={i} className="h-11 w-full" />
           ))}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem render={<Link to="/accounts" />}>
-          <UsersIcon className="size-4" aria-hidden />
-          Quản lý account
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </div>
+      ) : (
+        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
+          {accounts?.map((a) => (
+            <li key={a.id}>
+              <AccountItem account={a} active={a.id === accountId} />
+            </li>
+          ))}
+          {accounts?.length === 0 && (
+            <li className="px-2 py-3 text-xs text-muted-foreground">
+              Chưa có account.{" "}
+              <Link to="/accounts" className="text-primary underline-offset-2 hover:underline">
+                Thêm account
+              </Link>
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AccountItem({ account, active }: { account: Account; active: boolean }) {
+  const session = useSession(account);
+  const tcp = useTcpStatus(account.id);
+  // Nickname from the login request, cache only.
+  const me = useQuery({ ...litQueries.userInfoMe(account.id), enabled: false });
+  const subtitle = session.state === "in" ? (me.data?.nickname ?? sessionLabel(session)) : sessionLabel(session);
+
+  return (
+    <Link
+      to="/account/$accountId"
+      params={{ accountId: account.id }}
+      className={cn(itemClass, "h-11", active && activeClass)}
+      aria-current={active ? "page" : undefined}
+    >
+      <span className="relative shrink-0">
+        <AccountAvatar label={account.label} size="sm" />
+        <SessionDot session={session} className="absolute -right-0.5 -bottom-0.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-foreground">{account.label}</span>
+        <span
+          className={cn(
+            "block truncate text-[11px]",
+            session.state === "error" ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {subtitle}
+        </span>
+      </span>
+      {session.state === "in" && <TcpIcon status={tcp} />}
+    </Link>
   );
 }
 

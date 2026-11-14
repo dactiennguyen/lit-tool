@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -14,7 +14,6 @@ pub const DEFAULT_IM_PORT: u16 = 6717;
 pub const DEFAULT_REST_BASE: &str = "https://a1-sgp-ga.easemob.com";
 const MAX_TEMPLATE_B64: usize = 65_536;
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
 /// Sent after a successful login, before the session is usable.
 const FOLLOWUP_FRAME: [u8; 12] = [0, 0, 0, 8, 0x08, 0x00, 0x40, 0x01, 0x4a, 0x00, 0x58, 0x00];
 
@@ -226,6 +225,19 @@ pub fn build_login_frame(template: &LoginTemplate, access_token: &str) -> Result
     replace_bytes(&mut body, 18, serde_json::to_vec(&auth).expect("map serializes"))?;
     replace_bytes(&mut outer, 9, write_fields(&body))?;
     Ok(frame(&write_fields(&outer)))
+}
+
+/// The shared template with another account's IM username: only the `name`
+/// inside the identity JID (outer field 2) changes; every other byte is kept.
+pub fn with_username(template: &LoginTemplate, username: &str) -> Result<LoginTemplate> {
+    if !is_id(username) {
+        return Err(HxError::Invalid("IM username không hợp lệ".into()));
+    }
+    let mut outer = read_fields(&template.payload)?;
+    let mut identity = read_fields(bytes_field(&outer, 2)?)?;
+    replace_bytes(&mut identity, 2, username.as_bytes().to_vec())?;
+    replace_bytes(&mut outer, 2, write_fields(&identity))?;
+    Ok(LoginTemplate { payload: write_fields(&outer), app_key: template.app_key.clone(), username: username.to_owned() })
 }
 
 fn is_id(v: &str) -> bool {
@@ -701,78 +713,6 @@ pub async fn fetch_history(t: &HistoryTarget<'_>, token: &str, limit: u32, curso
     parse_history(t, &json)
 }
 
-// ---------- tauri command ----------
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckResult {
-    pub username: String,
-    pub app_key: String,
-    pub host: String,
-    pub port: u16,
-    /// "access_token" or "password"
-    pub token_source: &'static str,
-    pub token_expires_in: Option<u64>,
-    pub steps: Vec<HandshakeStep>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum CommandError {
-    #[error(transparent)]
-    Account(#[from] crate::accounts::AccountError),
-    #[error(transparent)]
-    Hx(#[from] HxError),
-}
-
-impl Serialize for CommandError {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-/// Secrets for the IM login, stored in the keychain next to the sid.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HxSecret {
-    pub template_b64: String,
-    pub password: Option<String>,
-    pub access_token: Option<String>,
-}
-
-/// Get a token, log in over TCP, run the followup and disconnect. Sends no chat.
-#[tauri::command]
-pub async fn hx_check_connection(app: tauri::AppHandle, account_id: uuid::Uuid) -> std::result::Result<CheckResult, CommandError> {
-    use tauri::Manager;
-    let handle = app.clone();
-    let (config, secret) = tauri::async_runtime::spawn_blocking(move || {
-        handle.state::<crate::accounts::AccountRegistry>().hx_material(account_id)
-    })
-    .await
-    .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
-
-    let template = parse_template(&secret.template_b64)?;
-    let (token, token_source, token_expires_in) = match (&secret.access_token, &secret.password) {
-        (Some(t), _) => (t.clone(), "access_token", None),
-        (None, Some(pw)) => {
-            let rest = config.rest_base.as_deref().unwrap_or(DEFAULT_REST_BASE);
-            let t = request_user_token(&template.app_key, &template.username, pw, rest).await?;
-            (t.access_token, "password", t.expires_in)
-        }
-        (None, None) => return Err(HxError::Invalid("Chưa có hxPwd hoặc access token".into()).into()),
-    };
-    let login = build_login_frame(&template, &token)?;
-    let steps = connect_and_check(&config.host, config.port, &login, HANDSHAKE_TIMEOUT).await?;
-    Ok(CheckResult {
-        username: template.username,
-        app_key: template.app_key,
-        host: config.host,
-        port: config.port,
-        token_source,
-        token_expires_in,
-        steps,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -796,6 +736,18 @@ mod tests {
         // Unknown fields and the max uint64 survive the round trip.
         assert_eq!(build_login_frame(&t, "tok-123").unwrap(), unhex(LOGIN_FRAME_HEX));
         assert_eq!(write_fields(&read_fields(&t.payload).unwrap()), t.payload);
+    }
+
+    #[test]
+    fn shared_template_takes_each_accounts_username() {
+        let t = parse_template(TEMPLATE).unwrap();
+        let other = with_username(&t, "love_200").unwrap();
+        assert_eq!((other.app_key.as_str(), other.username.as_str()), ("org1#app1", "love_200"));
+        // Re-parses as a valid template, and swapping back gives the original bytes.
+        let reparsed = parse_template(&STANDARD.encode(&other.payload)).unwrap();
+        assert_eq!(reparsed.username, "love_200");
+        assert_eq!(with_username(&other, "love_100").unwrap().payload, t.payload);
+        assert!(with_username(&t, "bad name").is_err());
     }
 
     #[test]

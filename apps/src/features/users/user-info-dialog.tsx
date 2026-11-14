@@ -72,7 +72,7 @@ export function UserInfoDialog({
                 className="w-full"
                 onClick={() => {
                   onClose();
-                  void navigate({ to: "/chat", search: { to: imId } });
+                  void navigate({ to: "/account/$accountId/chat", params: { accountId }, search: { to: imId } });
                 }}
               >
                 <MessageSquareIcon aria-hidden />

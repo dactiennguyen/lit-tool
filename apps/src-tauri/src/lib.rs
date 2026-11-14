@@ -19,7 +19,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let registry = AccountRegistry::open(&dir, Box::new(KeyringStore))?;
             app.manage(registry);
-            app.manage(SettingsStore::open(&dir)?);
+            app.manage(SettingsStore::open(&dir, Box::new(KeyringStore))?);
             app.manage(chat::HxTokens::default());
             Ok(())
         })
@@ -28,12 +28,11 @@ pub fn run() {
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,
-            accounts::accounts_set_hx,
-            accounts::accounts_clear_hx,
-            hx::hx_check_connection,
+            chat::hx_check_connection,
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,
+            settings::settings_clear_im_template,
             lit::lit_account_info,
             lit::lit_online_users,
             lit::lit_user_info,

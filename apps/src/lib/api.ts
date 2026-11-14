@@ -11,26 +11,13 @@ export interface Account {
   dfpid: string | null;
   createdAt: number;
   sessionSavedAt: number | null;
-  hx: HxConfig | null;
+  /** IM identity saved from the profile at login; the password stays in the keychain. */
+  im: ImIdentity | null;
 }
 
-export interface HxConfig {
-  host: string;
-  port: number;
-  restBase: string | null;
-  appKey: string;
+export interface ImIdentity {
   username: string;
-  auth: "access_token" | "password";
-}
-
-/** Blank secret fields keep what is stored. */
-export interface HxInput {
-  host: string;
-  port: number | null;
-  restBase: string | null;
-  templateB64: string | null;
-  password: string | null;
-  accessToken: string | null;
+  savedAt: number;
 }
 
 export interface HxCheckResult {
@@ -38,7 +25,7 @@ export interface HxCheckResult {
   appKey: string;
   host: string;
   port: number;
-  tokenSource: "access_token" | "password";
+  /** Set when a new token was requested for this check. */
   tokenExpiresIn: number | null;
   steps: { step: "login" | "followup"; type: string; code: string; accepted: boolean }[];
 }
@@ -64,9 +51,23 @@ export interface AccountPatch {
 
 export interface AppSettings {
   apiBaseUrl: string;
+  /** Shared IM (chat) server for every account. */
+  imHost: string;
+  imPort: number;
+  imRestBase: string;
+  /** Connect to the chat server right after an account logs in. */
+  autoConnectTcp: boolean;
+  /** Identity inside the saved login template; the template never leaves the backend. */
+  imTemplate: { appKey: string; username: string } | null;
 }
 
+/** Blank `imTemplateB64` keeps the saved template. */
+export type SettingsPatch = Partial<Omit<AppSettings, "imTemplate"> & { imTemplateB64: string }>;
+
 export const DEFAULT_API_BASE_URL = "https://www.litatom.com";
+export const DEFAULT_IM_HOST = "128.1.26.67";
+export const DEFAULT_IM_PORT = 6717;
+export const DEFAULT_IM_REST_BASE = "https://a1-sgp-ga.easemob.com";
 
 export class ApiError extends Error {}
 
@@ -88,8 +89,6 @@ export const api = {
     update: (id: string, patch: AccountPatch) => call<Account>("accounts_update", { id, patch }),
     remove: (id: string) => call<void>("accounts_remove", { id }),
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
-    setHx: (id: string, input: HxInput) => call<Account>("accounts_set_hx", { id, input }),
-    clearHx: (id: string) => call<Account>("accounts_clear_hx", { id }),
   },
   hx: {
     /** Token + TCP login + followup, then disconnect. Sends no message. */
@@ -105,7 +104,11 @@ export const api = {
       call<SendOutcome>("hx_send_text", { accountId, to, text, firstContact }),
   },
   lit: {
-    /** `user/get_info/me` for a stored account. Session and IM credentials never leave the backend. */
+    /**
+     * `user/get_info/me` for a stored account (the login check). The IM username
+     * and password in it are saved for chat by the backend; neither they nor the
+     * session ever reach the webview.
+     */
     userInfoMe: (accountId: string) => call<UserProfile>("lit_user_info_me", { accountId }),
     /** `account/account_info`: wallet balances for a stored account. */
     accountInfo: (accountId: string) => call<Wallet>("lit_account_info", { accountId }),
@@ -119,6 +122,7 @@ export const api = {
   },
   settings: {
     get: () => call<AppSettings>("settings_get"),
-    update: (patch: Partial<AppSettings>) => call<AppSettings>("settings_update", { patch }),
+    update: (patch: SettingsPatch) => call<AppSettings>("settings_update", { patch }),
+    clearImTemplate: () => call<AppSettings>("settings_clear_im_template"),
   },
 };

@@ -17,13 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import type { Account, HxConfig } from "@/lib/api";
+import type { Account } from "@/lib/api";
 import type { Peer } from "@/lib/peer-directory";
 import { useHistory, useSendText } from "@/lib/queries";
 import { markRead } from "@/lib/read-markers";
 import { cn } from "@/lib/utils";
 import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog";
-import type { OpenConversation } from "./chat-page";
+import type { OpenConversation } from "./chat-tab";
 import { canSend, MAX_TEXT_BYTES, shortId, toThread, utf8Bytes, type ThreadMessage } from "./chat-view";
 
 const timeFmt = new Intl.DateTimeFormat("vi-VN", { timeStyle: "short" });
@@ -37,13 +37,14 @@ function formatTime(ms: number | null): string {
 
 export function ThreadPane({
   account,
-  hx,
+  me,
   conversation,
   peer,
   onFirstContact,
 }: {
   account: Account;
-  hx: HxConfig;
+  /** The account's IM username. */
+  me: string;
   conversation: OpenConversation;
   peer: Peer | undefined;
   /** Called once a first-contact message was accepted by the server. */
@@ -100,7 +101,7 @@ export function ThreadPane({
           description="Người này chưa có trong danh sách hội thoại của account. Tin đầu tiên sẽ được tính là một lượt bắt chuyện."
         />
       ) : (
-        <MessageList history={history} me={hx.username} accountId={account.id} conversationId={conversation.id} />
+        <MessageList history={history} me={me} accountId={account.id} conversationId={conversation.id} />
       )}
 
       {isGroup ? (

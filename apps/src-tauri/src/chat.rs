@@ -1,4 +1,8 @@
-//! Chat commands: history and sending one text message for a stored account.
+//! Chat commands: connection check, history and sending one text message.
+//!
+//! The IM server (host, port, REST base, login template) is shared and comes
+//! from the settings; each account brings its own IM username and password,
+//! saved from its profile at login. The username replaces the one in the template.
 //!
 //! IM tokens obtained from the hxPwd are cached here, in memory only, so that
 //! reading history does not request a new token every time. Neither the token
@@ -13,11 +17,13 @@ use sha2::{Digest, Sha256};
 use tauri::Manager;
 use uuid::Uuid;
 
-use crate::accounts::{AccountRegistry, HxConfig};
-use crate::hx::{self, HistoryPage, HistoryTarget, HxError, HxSecret, LoginTemplate};
+use crate::accounts::AccountRegistry;
+use crate::hx::{self, HandshakeStep, HistoryPage, HistoryTarget, HxError, LoginTemplate};
 use crate::lit::{self, LitError};
+use crate::settings::SettingsStore;
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(15);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
 /// Used when the token response has no `expires_in`.
 const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(3600);
 const MAX_TOKEN_TTL: Duration = Duration::from_secs(24 * 3600);
@@ -33,6 +39,8 @@ pub enum CommandError {
     Hx(#[from] HxError),
     #[error(transparent)]
     Lit(#[from] lit::CommandError),
+    #[error(transparent)]
+    Settings(#[from] crate::settings::SettingsError),
 }
 
 impl From<LitError> for CommandError {
@@ -71,9 +79,10 @@ pub struct HxTokens {
     failures: Mutex<HashMap<Uuid, TokenFailure>>,
 }
 
-fn fingerprint(config: &HxConfig, secret: &HxSecret) -> [u8; 32] {
+/// Everything a token depends on: a change to any of them misses the cache.
+fn fingerprint(template_b64: &str, username: &str, password: &str, rest_base: &str) -> [u8; 32] {
     let mut h = Sha256::new();
-    for part in [secret.template_b64.as_str(), secret.password.as_deref().unwrap_or(""), config.rest_base.as_deref().unwrap_or("")] {
+    for part in [template_b64, username, password, rest_base] {
         h.update(part.as_bytes());
         h.update([0]);
     }
@@ -116,15 +125,18 @@ impl HxTokens {
 /// Everything needed to talk to the IM server as one account.
 struct Session {
     account_id: Uuid,
-    config: HxConfig,
-    secret: HxSecret,
+    host: String,
+    port: u16,
+    rest_base: String,
+    /// The shared template with this account's username.
     template: LoginTemplate,
+    password: String,
+    fingerprint: [u8; 32],
 }
 
 /// Where the token came from: only a cached one is worth replacing on rejection.
 #[derive(PartialEq)]
 enum TokenSource {
-    Configured,
     Cached,
     Fresh,
 }
@@ -132,40 +144,46 @@ enum TokenSource {
 impl Session {
     async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
         let handle = app.clone();
-        // The keychain read can block (or prompt), so keep it off the async workers.
-        let (config, secret) =
-            tauri::async_runtime::spawn_blocking(move || handle.state::<AccountRegistry>().hx_material(account_id))
-                .await
-                .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
-        let template = hx::parse_template(&secret.template_b64)?;
-        Ok(Self { account_id, config, secret, template })
+        // Keychain reads can block (or prompt), so keep them off the async workers.
+        let (settings, template_b64, (username, password)) = tauri::async_runtime::spawn_blocking(move || {
+            let settings = handle.state::<SettingsStore>();
+            let template = settings.im_template()?;
+            let im = handle.state::<AccountRegistry>().im_material(account_id)?;
+            Ok::<_, CommandError>((settings.get(), template, im))
+        })
+        .await
+        .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
+        let template_b64 =
+            template_b64.ok_or_else(|| HxError::Invalid("Chưa có login template: nhập trong Cài đặt › Server chat".into()))?;
+        let template = hx::with_username(&hx::parse_template(&template_b64)?, &username)?;
+        let fingerprint = fingerprint(&template_b64, &username, &password, &settings.im_rest_base);
+        Ok(Self {
+            account_id,
+            host: settings.im_host,
+            port: settings.im_port,
+            rest_base: settings.im_rest_base,
+            template,
+            password,
+            fingerprint,
+        })
     }
 
-    fn rest_base(&self) -> &str {
-        self.config.rest_base.as_deref().unwrap_or(hx::DEFAULT_REST_BASE)
-    }
-
-    async fn token(&self, app: &tauri::AppHandle) -> Result<(String, TokenSource)> {
-        if let Some(t) = &self.secret.access_token {
-            return Ok((t.clone(), TokenSource::Configured));
-        }
-        let Some(password) = &self.secret.password else {
-            return Err(HxError::Invalid("Chưa có hxPwd hoặc access token".into()).into());
-        };
+    async fn token(&self, app: &tauri::AppHandle) -> Result<(String, TokenSource, Option<u64>)> {
         let tokens = app.state::<HxTokens>();
-        let fp = fingerprint(&self.config, &self.secret);
+        let fp = self.fingerprint;
         if let Some(t) = tokens.get(self.account_id, &fp) {
-            return Ok((t, TokenSource::Cached));
+            return Ok((t, TokenSource::Cached, None));
         }
         let _one_at_a_time = tokens.fetching.lock().await;
         // Another caller may have stored a token (or failed) while this one waited.
         if let Some(t) = tokens.get(self.account_id, &fp) {
-            return Ok((t, TokenSource::Cached));
+            return Ok((t, TokenSource::Cached, None));
         }
         if let Some(e) = tokens.recent_failure(self.account_id, &fp) {
             return Err(HxError::Token(format!("{e} (thử lại sau ít phút)")).into());
         }
-        let result = hx::request_user_token(&self.template.app_key, &self.template.username, password, self.rest_base()).await;
+        let result =
+            hx::request_user_token(&self.template.app_key, &self.template.username, &self.password, &self.rest_base).await;
         let failure = result.as_ref().err().map(|e| match e {
             HxError::Token(m) => m.clone(),
             other => other.to_string(),
@@ -173,7 +191,7 @@ impl Session {
         tokens.record(self.account_id, fp, failure);
         let t = result?;
         tokens.put(self.account_id, fp, t.access_token.clone(), token_ttl(t.expires_in));
-        Ok((t.access_token, TokenSource::Fresh))
+        Ok((t.access_token, TokenSource::Fresh, t.expires_in))
     }
 
     fn forget_token(&self, app: &tauri::AppHandle) {
@@ -197,17 +215,17 @@ pub async fn hx_history(
     let target = HistoryTarget {
         app_key: &session.template.app_key,
         username: &session.template.username,
-        rest_base: session.rest_base(),
+        rest_base: &session.rest_base,
         to: &conversation_id,
         conversation_type,
     };
     hx::history_request(&target, limit, cursor.as_deref())?; // validate before any network call
-    let (token, source) = session.token(&app).await?;
+    let (token, source, _) = session.token(&app).await?;
     match hx::fetch_history(&target, &token, limit, cursor.as_deref()).await {
         // A cached token may have been revoked: a read can safely be repeated once with a new one.
         Err(HxError::Unauthorized) if source == TokenSource::Cached => {
             session.forget_token(&app);
-            let (token, _) = session.token(&app).await?;
+            let (token, ..) = session.token(&app).await?;
             Ok(hx::fetch_history(&target, &token, limit, cursor.as_deref()).await?)
         }
         Err(HxError::Unauthorized) => {
@@ -257,18 +275,18 @@ pub async fn hx_send_text(
         hx::build_text_message(&session.template.username, &to, &text, local_id, &Uuid::new_v4().to_string())?;
 
     let send = |token: String| {
-        let (host, port, template, message) = (&session.config.host, session.config.port, &session.template, &message);
+        let (host, port, template, message) = (&session.host, session.port, &session.template, &message);
         async move {
             let login = hx::build_login_frame(template, &token)?;
             hx::connect(host, port, &login, Some(message), SEND_TIMEOUT).await
         }
     };
-    let (token, source) = session.token(&app).await?;
+    let (token, source, _) = session.token(&app).await?;
     let result = match send(token).await {
         // Rejected at login, so the message was never written: safe to try once with a new token.
         Err(HxError::Rejected { step: "login", .. }) if source == TokenSource::Cached => {
             session.forget_token(&app);
-            let (token, _) = session.token(&app).await?;
+            let (token, ..) = session.token(&app).await?;
             send(token).await
         }
         other => other,
@@ -286,34 +304,62 @@ pub async fn hx_send_text(
     Ok(SendOutcome { server_id: ack.server_id, local_id: message.local_id, metadata_error })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckResult {
+    pub username: String,
+    pub app_key: String,
+    pub host: String,
+    pub port: u16,
+    /// Set when a new token was requested for this check.
+    pub token_expires_in: Option<u64>,
+    pub steps: Vec<HandshakeStep>,
+}
+
+/// Get a token, log in over TCP, run the followup and disconnect. Sends no chat.
+#[tauri::command]
+pub async fn hx_check_connection(app: tauri::AppHandle, account_id: Uuid) -> Result<CheckResult> {
+    let session = Session::load(&app, account_id).await?;
+    let (token, _, token_expires_in) = session.token(&app).await?;
+    let login = hx::build_login_frame(&session.template, &token)?;
+    let steps = match hx::connect_and_check(&session.host, session.port, &login, HANDSHAKE_TIMEOUT).await {
+        Ok(steps) => steps,
+        Err(e) => {
+            if matches!(e, HxError::Rejected { step: "login", .. }) {
+                session.forget_token(&app);
+            }
+            return Err(e.into());
+        }
+    };
+    Ok(CheckResult {
+        username: session.template.username.clone(),
+        app_key: session.template.app_key.clone(),
+        host: session.host.clone(),
+        port: session.port,
+        token_expires_in,
+        steps,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn config(rest: Option<&str>) -> HxConfig {
-        HxConfig {
-            host: "127.0.0.1".into(),
-            port: 6717,
-            rest_base: rest.map(Into::into),
-            app_key: "org1#app1".into(),
-            username: "love_100".into(),
-            auth: "password".into(),
-        }
-    }
-
-    fn secret(pw: &str) -> HxSecret {
-        HxSecret { template_b64: "T".into(), password: Some(pw.into()), access_token: None }
+    fn fp(username: &str, password: &str, rest: &str) -> [u8; 32] {
+        fingerprint("T", username, password, rest)
     }
 
     #[test]
     fn token_cache_misses_on_new_credentials_and_expiry() {
         let tokens = HxTokens::default();
         let id = Uuid::new_v4();
-        let fp = fingerprint(&config(None), &secret("pw1"));
+        let fp = fp("love_1", "pw1", "r");
         tokens.put(id, fp, "tok".into(), Duration::from_secs(60));
         assert_eq!(tokens.get(id, &fp).as_deref(), Some("tok"));
-        assert_eq!(tokens.get(id, &fingerprint(&config(None), &secret("pw2"))), None);
-        assert_eq!(tokens.get(id, &fingerprint(&config(Some("https://x.easemob.com")), &secret("pw1"))), None);
+        assert_eq!(tokens.get(id, &fingerprint("T", "love_1", "pw2", "r")), None);
+        assert_eq!(tokens.get(id, &fingerprint("T", "love_1", "pw1", "https://x.easemob.com")), None);
+        assert_eq!(tokens.get(id, &fingerprint("T", "love_2", "pw1", "r")), None);
+        assert_eq!(tokens.get(id, &fingerprint("T2", "love_1", "pw1", "r")), None);
         assert_eq!(tokens.get(Uuid::new_v4(), &fp), None);
         tokens.forget(id);
         assert_eq!(tokens.get(id, &fp), None);
@@ -325,12 +371,12 @@ mod tests {
     fn token_failures_are_remembered_briefly_per_credentials() {
         let tokens = HxTokens::default();
         let id = Uuid::new_v4();
-        let fp = fingerprint(&config(None), &secret("pw1"));
+        let fp = fp("love_1", "pw1", "r");
         assert_eq!(tokens.recent_failure(id, &fp), None);
         tokens.record(id, fp, Some("HTTP 401".into()));
         assert_eq!(tokens.recent_failure(id, &fp).as_deref(), Some("HTTP 401"));
         // New credentials are tried at once.
-        assert_eq!(tokens.recent_failure(id, &fingerprint(&config(None), &secret("pw2"))), None);
+        assert_eq!(tokens.recent_failure(id, &fingerprint("T", "love_1", "pw2", "r")), None);
         tokens.record(id, fp, None);
         assert_eq!(tokens.recent_failure(id, &fp), None);
     }

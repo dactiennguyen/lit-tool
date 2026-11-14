@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Account } from "@/lib/api";
-import { useActiveAccount } from "@/lib/active-account";
 import { useAddAccount, useUpdateAccount } from "@/lib/queries";
 import { validateAccountForm, type AccountFormErrors, type AccountFormValues } from "@/lib/validation";
 
@@ -40,7 +40,7 @@ export function AccountFormDialog({
   const [showSid, setShowSid] = useState(false);
   const add = useAddAccount();
   const update = useUpdateAccount();
-  const { setActiveId } = useActiveAccount();
+  const navigate = useNavigate();
   const pending = add.isPending || update.isPending;
 
   const set = (key: keyof AccountFormValues) => (value: string) => {
@@ -75,7 +75,7 @@ export function AccountFormDialog({
           dfpid,
           sid,
         });
-        setActiveId(created.id);
+        void navigate({ to: "/account/$accountId", params: { accountId: created.id } });
         toast.success(`Đã thêm ${created.label}`);
       }
       onOpenChange(false);

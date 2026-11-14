@@ -1,12 +1,10 @@
 import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { RequireAccount } from "@/components/require-account";
+import { TabToolbar } from "@/components/tab-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Account } from "@/lib/api";
-import { useActiveAccount } from "@/lib/active-account";
 import { useAccountInfo, useUserInfoMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { ProfileDetails } from "./profile-details";
@@ -14,29 +12,26 @@ import { toWallet } from "./wallet";
 
 const numberFmt = new Intl.NumberFormat("vi-VN");
 
-export function ProfilePage() {
-  const { active } = useActiveAccount();
-  const me = useUserInfoMe(active?.id);
-  const wallet = useAccountInfo(active?.id);
+/** Hồ sơ tab: own profile and wallet of a logged-in account. */
+export function ProfileTab({ account }: { account: Account }) {
+  const me = useUserInfoMe(account.id);
+  const wallet = useAccountInfo(account.id);
   const fetching = me.isFetching || wallet.isFetching;
 
   return (
     <>
-      <PageHeader
-        title="Hồ sơ"
-        description={active ? `Thông tin từ server của ${active.label}` : undefined}
-        actions={
-          <Button
-            variant="outline"
-            onClick={() => Promise.all([me.refetch(), wallet.refetch()])}
-            disabled={!active || fetching}
-          >
-            <RefreshCwIcon className={cn(fetching && "animate-spin")} aria-hidden />
-            Tải lại
-          </Button>
-        }
-      />
-      <RequireAccount>{(account) => <ProfileBody account={account} me={me} wallet={wallet} />}</RequireAccount>
+      <TabToolbar>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => Promise.all([me.refetch(), wallet.refetch()])}
+          disabled={fetching}
+        >
+          <RefreshCwIcon className={cn(fetching && "animate-spin")} aria-hidden />
+          Tải lại
+        </Button>
+      </TabToolbar>
+      <ProfileBody account={account} me={me} wallet={wallet} />
     </>
   );
 }

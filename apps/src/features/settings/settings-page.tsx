@@ -12,6 +12,7 @@ import { DEFAULT_API_BASE_URL } from "@/lib/api";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { checkBaseUrl } from "@/lib/validation";
+import { ImServerCard } from "./im-server-card";
 
 const THEMES: { value: Theme; label: string; icon: LucideIcon }[] = [
   { value: "light", label: "Sáng", icon: SunIcon },
@@ -28,6 +29,7 @@ export function SettingsPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid max-w-2xl gap-4 p-5">
           <ServerApiCard />
+          <ImServerCard />
 
           <Card>
             <CardHeader>
@@ -69,9 +71,12 @@ export function SettingsPage() {
                 Thông tin account (tên, user ID, device UUID, version) nằm trong file{" "}
                 <code className="font-mono text-xs text-foreground">accounts.json</code> ở thư mục dữ liệu của app.
               </p>
-              <p>Session (sid) nằm trong Keychain / Credential Manager của hệ điều hành.</p>
               <p>
-                Cài đặt chung (như Server API) nằm trong file{" "}
+                Session (sid), mật khẩu chat của từng account và login template nằm trong Keychain / Credential
+                Manager của hệ điều hành.
+              </p>
+              <p>
+                Cài đặt chung (Server API, IM host, port) nằm trong file{" "}
                 <code className="font-mono text-xs text-foreground">settings.json</code> cùng thư mục.
               </p>
             </CardContent>

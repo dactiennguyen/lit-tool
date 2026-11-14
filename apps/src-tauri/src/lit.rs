@@ -453,12 +453,37 @@ fn user_info_me_query() -> [(&'static str, String); 2] {
     [("from", "me".to_owned()), ("source", "me".to_owned())]
 }
 
-/// The account's own profile. `UserProfile` has no field for the session token or
-/// the IM credentials, so they cannot leave the backend (see lit_types.rs).
+/// IM credentials inside the own profile (`data.huanxin`), when well-formed.
+pub fn im_credentials(json: &serde_json::Value) -> Option<(String, String)> {
+    let h = json.get("data")?.get("huanxin")?;
+    let user = h.get("user_id")?.as_str()?;
+    let password = h.get("password")?.as_str()?;
+    (is_id(user) && !password.is_empty()).then(|| (user.to_owned(), password.to_owned()))
+}
+
+/// The account's own profile; this is the "Đăng nhập" check. The IM username and
+/// password found in it are saved for chat (password in the keychain).
+/// `UserProfile` has no field for the session token or the IM credentials, so
+/// they cannot leave the backend (see lit_types.rs).
 #[tauri::command]
 pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<UserProfile, CommandError> {
+    use tauri::Manager;
     let query = user_info_me_query();
-    get_typed(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await
+    let json = request_for_account(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await?;
+    if let Some((user, password)) = im_credentials(&json) {
+        let handle = app.clone();
+        let saved = tauri::async_runtime::spawn_blocking(move || {
+            handle.state::<crate::accounts::AccountRegistry>().save_im_credentials(account_id, &user, &password)
+        })
+        .await;
+        // Login itself succeeded; chat will report what is missing.
+        match saved {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => eprintln!("could not save IM credentials: {e}"),
+            Err(e) => eprintln!("could not save IM credentials: {e}"),
+        }
+    }
+    Ok(parse_data(json)?)
 }
 
 /// `user/conversations`: the account's Litmatch conversation list. Entries
@@ -648,6 +673,20 @@ mod tests {
         assert_eq!(req.url.path(), "/api/sns/v1/lit/user/get_info/me");
         assert!(req.url.query().unwrap().starts_with("from=me&source=me&app_source=litmatch&"));
         assert!(req.headers.iter().any(|(k, v)| *k == "lit-user-id" && v == "u10"));
+    }
+
+    #[test]
+    fn reads_im_credentials_from_the_own_profile() {
+        let json = serde_json::json!({ "data": { "huanxin": { "user_id": "love_1", "password": "pw" } } });
+        assert_eq!(im_credentials(&json), Some(("love_1".into(), "pw".into())));
+        for bad in [
+            serde_json::json!({ "data": {} }),
+            serde_json::json!({ "data": { "huanxin": { "user_id": "a b", "password": "pw" } } }),
+            serde_json::json!({ "data": { "huanxin": { "user_id": "love_1", "password": "" } } }),
+            serde_json::json!({ "data": { "huanxin": { "user_id": 5, "password": "pw" } } }),
+        ] {
+            assert_eq!(im_credentials(&bad), None);
+        }
     }
 
     #[test]

@@ -1,14 +1,13 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { AlertTriangleIcon, Loader2Icon, MapPinIcon, RadioIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { RequireAccount } from "@/components/require-account";
+import { TabToolbar } from "@/components/tab-toolbar";
 import { PersonAvatar } from "@/components/account-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useActiveAccount } from "@/lib/active-account";
+import type { Account } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { GENDER_LABEL } from "@/lib/lit-format";
 import { isId } from "@/lib/validation";
@@ -16,9 +15,9 @@ import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog"
 import type { OnlineUser } from "./online-view";
 import { useOnlineUsers } from "./use-online-users";
 
-export function OnlinePage() {
-  const { active } = useActiveAccount();
-  const online = useOnlineUsers(active?.id);
+/** Người mới tab: who is online now, plus lookup by user ID. */
+export function DiscoverTab({ account }: { account: Account }) {
+  const online = useOnlineUsers(account.id);
   const [viewing, setViewing] = useState<UserRef | null>(null);
 
   // Pages can overlap when people come online between requests: dedupe by id.
@@ -33,63 +32,53 @@ export function OnlinePage() {
 
   return (
     <>
-      <PageHeader
-        title="Đang online"
-        description={online.data ? `${users.length} người` : "Người dùng đang online ở trang chủ"}
-        actions={
-          <>
-            {active && <LookupById onOpen={setViewing} />}
-            <Button variant="outline" onClick={() => online.refetch()} disabled={!active || online.isFetching}>
-              <RefreshCwIcon className={cn(refreshing && "animate-spin")} aria-hidden />
-              Làm mới
+      <TabToolbar label={online.data ? `${users.length} người đang online` : "Người dùng đang online ở trang chủ"}>
+        <LookupById onOpen={setViewing} />
+        <Button variant="outline" size="sm" onClick={() => online.refetch()} disabled={online.isFetching}>
+          <RefreshCwIcon className={cn(refreshing && "animate-spin")} aria-hidden />
+          Làm mới
+        </Button>
+      </TabToolbar>
+      {online.isPending ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 p-5" aria-busy="true" aria-label="Đang tải">
+          {Array.from({ length: 9 }, (_, i) => (
+            <Skeleton key={i} className="h-20" />
+          ))}
+        </div>
+      ) : online.error && users.length === 0 ? (
+        <EmptyState
+          icon={AlertTriangleIcon}
+          title="Không tải được danh sách online"
+          description={online.error.message}
+          action={
+            <Button variant="outline" onClick={() => online.refetch()}>
+              Thử lại
             </Button>
-          </>
-        }
-      />
-      <RequireAccount>
-        {() =>
-          online.isPending ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 p-5" aria-busy="true" aria-label="Đang tải">
-              {Array.from({ length: 9 }, (_, i) => (
-                <Skeleton key={i} className="h-20" />
-              ))}
-            </div>
-          ) : online.error && users.length === 0 ? (
-            <EmptyState
-              icon={AlertTriangleIcon}
-              title="Không tải được danh sách online"
-              description={online.error.message}
-              action={
-                <Button variant="outline" onClick={() => online.refetch()}>
-                  Thử lại
-                </Button>
-              }
-            />
-          ) : users.length === 0 ? (
-            <EmptyState icon={RadioIcon} title="Chưa thấy ai online" description="Thử làm mới sau ít phút." />
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 p-5">
-                {users.map((u) => (
-                  <UserCard key={u.key} user={u} onOpen={setViewing} />
-                ))}
-              </ul>
-              <div className="flex flex-col items-center gap-2 pb-6">
-                {online.error && <p className="text-sm text-destructive">{online.error.message}</p>}
-                {online.hasNextPage ? (
-                  <Button variant="outline" onClick={() => online.fetchNextPage()} disabled={online.isFetchingNextPage}>
-                    {online.isFetchingNextPage && <Loader2Icon className="animate-spin" aria-hidden />}
-                    Tải thêm
-                  </Button>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Đã hết danh sách</p>
-                )}
-              </div>
-            </div>
-          )
-        }
-      </RequireAccount>
-      {active && <UserInfoDialog accountId={active.id} user={viewing} onClose={() => setViewing(null)} />}
+          }
+        />
+      ) : users.length === 0 ? (
+        <EmptyState icon={RadioIcon} title="Chưa thấy ai online" description="Thử làm mới sau ít phút." />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 p-5">
+            {users.map((u) => (
+              <UserCard key={u.key} user={u} onOpen={setViewing} />
+            ))}
+          </ul>
+          <div className="flex flex-col items-center gap-2 pb-6">
+            {online.error && <p className="text-sm text-destructive">{online.error.message}</p>}
+            {online.hasNextPage ? (
+              <Button variant="outline" onClick={() => online.fetchNextPage()} disabled={online.isFetchingNextPage}>
+                {online.isFetchingNextPage && <Loader2Icon className="animate-spin" aria-hidden />}
+                Tải thêm
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">Đã hết danh sách</p>
+            )}
+          </div>
+        </div>
+      )}
+      <UserInfoDialog accountId={account.id} user={viewing} onClose={() => setViewing(null)} />
     </>
   );
 }
@@ -118,7 +107,7 @@ function LookupById({ onOpen }: { onOpen: (u: UserRef) => void }) {
         aria-label="Xem thông tin user theo ID, nhấn Enter"
         aria-invalid={id !== "" && !valid}
         spellCheck={false}
-        className="w-52 pl-8 font-mono"
+        className="h-8 w-52 pl-8 font-mono"
       />
     </form>
   );

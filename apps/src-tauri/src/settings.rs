@@ -1,4 +1,8 @@
 //! App settings stored as `settings.json` in the app data dir.
+//!
+//! The IM (chat) server is shared by every account: host, port and REST base
+//! are plain settings, while the login template is kept in the OS keychain.
+//! Each account's own IM username replaces the one inside the template.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,11 +10,15 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use crate::accounts::SecretStore;
+use crate::hx;
 use crate::store::{self, Loaded};
 
 const FILE_NAME: &str = "settings.json";
 /// Same default as `LIT_BASE_URL` in scripts/src/core/constants.ts.
 pub const DEFAULT_API_BASE_URL: &str = "https://www.litatom.com";
+pub const DEFAULT_IM_HOST: &str = "128.1.26.67";
+const TEMPLATE_KEY: &str = "global.im_template";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
@@ -28,22 +36,62 @@ impl Serialize for SettingsError {
 
 pub type Result<T> = std::result::Result<T, SettingsError>;
 
+fn invalid(e: impl std::fmt::Display) -> SettingsError {
+    SettingsError::Invalid(e.to_string())
+}
+
+/// What `settings.json` holds. Missing fields take their defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub api_base_url: String,
+    pub im_host: String,
+    pub im_port: u16,
+    pub im_rest_base: String,
+    /// Connect to the chat server right after an account logs in.
+    pub auto_connect_tcp: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { api_base_url: DEFAULT_API_BASE_URL.to_owned() }
+        Self {
+            api_base_url: DEFAULT_API_BASE_URL.to_owned(),
+            im_host: DEFAULT_IM_HOST.to_owned(),
+            im_port: hx::DEFAULT_IM_PORT,
+            im_rest_base: hx::DEFAULT_REST_BASE.to_owned(),
+            auto_connect_tcp: false,
+        }
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// Shown about the saved template; the template itself never leaves the backend.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInfo {
+    pub app_key: String,
+    /// The account the template was captured from (replaced per account at login).
+    pub username: String,
+}
+
+/// Settings as sent to the webview.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    #[serde(flatten)]
+    pub settings: AppSettings,
+    pub im_template: Option<TemplateInfo>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub api_base_url: Option<String>,
+    pub im_host: Option<String>,
+    pub im_port: Option<u16>,
+    pub im_rest_base: Option<String>,
+    pub auto_connect_tcp: Option<bool>,
+    /// Blank keeps the saved template.
+    pub im_template_b64: Option<String>,
 }
 
 /// Accept only an http(s) origin; normalise to `scheme://host[:port]`
@@ -63,10 +111,13 @@ pub fn normalize_base_url(raw: &str) -> Result<String> {
 pub struct SettingsStore {
     path: PathBuf,
     current: Mutex<AppSettings>,
+    secrets: Box<dyn SecretStore>,
+    /// The template read from (or written to) the keychain this run; `None` = not read yet.
+    template: Mutex<Option<Option<String>>>,
 }
 
 impl SettingsStore {
-    pub fn open(dir: &Path) -> Result<Self> {
+    pub fn open(dir: &Path, secrets: Box<dyn SecretStore>) -> Result<Self> {
         fs::create_dir_all(dir)?;
         let path = dir.join(FILE_NAME);
         // A corrupt settings file is moved aside and defaults are used.
@@ -78,42 +129,103 @@ impl SettingsStore {
                 AppSettings::default()
             }
         };
-        Ok(Self { path, current: Mutex::new(current) })
+        Ok(Self { path, current: Mutex::new(current), secrets, template: Mutex::new(None) })
     }
 
     pub fn get(&self) -> AppSettings {
         self.current.lock().unwrap().clone()
     }
 
-    pub fn update(&self, patch: SettingsPatch) -> Result<AppSettings> {
+    /// The shared login template (base64), for the backend only. May block on the keychain.
+    pub fn im_template(&self) -> Result<Option<String>> {
+        let mut cached = self.template.lock().unwrap();
+        if let Some(t) = cached.as_ref() {
+            return Ok(t.clone());
+        }
+        let t = self.secrets.get(TEMPLATE_KEY).map_err(invalid)?;
+        *cached = Some(t.clone());
+        Ok(t)
+    }
+
+    pub fn view(&self) -> Result<SettingsView> {
+        // An unreadable saved template shows as missing, so it can be replaced.
+        let im_template = self.im_template()?.and_then(|b64| hx::parse_template(&b64).ok()).map(|t| TemplateInfo {
+            app_key: t.app_key,
+            username: t.username,
+        });
+        Ok(SettingsView { settings: self.get(), im_template })
+    }
+
+    pub fn update(&self, patch: SettingsPatch) -> Result<SettingsView> {
+        // Held for the whole update, so two saves cannot overwrite each other.
         let mut current = self.current.lock().unwrap();
         let mut next = current.clone();
         if let Some(url) = patch.api_base_url {
             next.api_base_url = normalize_base_url(&url)?;
         }
-        self.persist(&next)?;
-        *current = next.clone();
-        Ok(next)
+        if let Some(host) = patch.im_host {
+            next.im_host = hx::validate_host(&host).map_err(invalid)?;
+        }
+        if let Some(port) = patch.im_port {
+            if port == 0 {
+                return Err(SettingsError::Invalid("Port không hợp lệ".into()));
+            }
+            next.im_port = port;
+        }
+        if let Some(rest) = patch.im_rest_base {
+            next.im_rest_base = hx::easemob_origin(&rest).map_err(invalid)?;
+        }
+        if let Some(auto) = patch.auto_connect_tcp {
+            next.auto_connect_tcp = auto;
+        }
+        let template = patch.im_template_b64.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+        if let Some(t) = &template {
+            hx::parse_template(t).map_err(invalid)?;
+        }
+
+        // Keychain first, then the file: a failed keychain write changes nothing.
+        if let Some(t) = template {
+            self.secrets.set(TEMPLATE_KEY, &t).map_err(invalid)?;
+            *self.template.lock().unwrap() = Some(Some(t));
+        }
+        store::write_json_atomic(&self.path, &next)?;
+        *current = next;
+        drop(current);
+        self.view()
     }
 
-    fn persist(&self, settings: &AppSettings) -> Result<()> {
-        Ok(store::write_json_atomic(&self.path, settings)?)
+    pub fn clear_im_template(&self) -> Result<SettingsView> {
+        self.secrets.delete(TEMPLATE_KEY).map_err(invalid)?;
+        *self.template.lock().unwrap() = Some(None);
+        self.view()
     }
-}
-
-#[tauri::command]
-pub fn settings_get(store: tauri::State<'_, SettingsStore>) -> AppSettings {
-    store.get()
 }
 
 #[tauri::command(async)]
-pub fn settings_update(store: tauri::State<'_, SettingsStore>, patch: SettingsPatch) -> Result<AppSettings> {
+pub fn settings_get(store: tauri::State<'_, SettingsStore>) -> Result<SettingsView> {
+    store.view()
+}
+
+#[tauri::command(async)]
+pub fn settings_update(store: tauri::State<'_, SettingsStore>, patch: SettingsPatch) -> Result<SettingsView> {
     store.update(patch)
+}
+
+#[tauri::command(async)]
+pub fn settings_clear_im_template(store: tauri::State<'_, SettingsStore>) -> Result<SettingsView> {
+    store.clear_im_template()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accounts::MemoryStore;
+
+    const TEMPLATE: &str = "EiIKCW9yZzEjYXBwMRIIbG92ZV8xMDAaC2Vhc2Vtb2IuY29tQANKMwgFkgEieyJ0b2tlbiI6IiIsInZpZCI6InYxIiwiY2lkIjoiYzEifaAB////////////AWAH";
+
+    fn open(dir: &Path) -> SettingsStore {
+        SettingsStore::open(dir, Box::new(MemoryStore::default())).unwrap()
+    }
 
     #[test]
     fn normalizes_to_origin() {
@@ -132,27 +244,51 @@ mod tests {
     #[test]
     fn defaults_then_persists() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SettingsStore::open(dir.path()).unwrap();
-        assert_eq!(store.get().api_base_url, DEFAULT_API_BASE_URL);
+        let store = open(dir.path());
+        let s = store.get();
+        assert_eq!((s.api_base_url.as_str(), s.im_host.as_str(), s.im_port), (DEFAULT_API_BASE_URL, DEFAULT_IM_HOST, 6717));
 
-        store.update(SettingsPatch { api_base_url: Some("http://localhost:3000/".into()) }).unwrap();
-        assert!(store.update(SettingsPatch { api_base_url: Some("nope".into()) }).is_err());
+        let patch = SettingsPatch { api_base_url: Some("http://localhost:3000/".into()), im_host: Some(" 10.0.0.1 ".into()), ..Default::default() };
+        store.update(patch).unwrap();
+        assert!(store.update(SettingsPatch { api_base_url: Some("nope".into()), ..Default::default() }).is_err());
+        assert!(store.update(SettingsPatch { im_port: Some(0), ..Default::default() }).is_err());
+        assert!(store.update(SettingsPatch { im_rest_base: Some("https://evil.com".into()), ..Default::default() }).is_err());
 
-        let reopened = SettingsStore::open(dir.path()).unwrap();
-        assert_eq!(reopened.get().api_base_url, "http://localhost:3000");
+        assert!(!store.get().auto_connect_tcp);
+        store.update(SettingsPatch { auto_connect_tcp: Some(true), ..Default::default() }).unwrap();
+
+        let reopened = open(dir.path());
+        assert_eq!((reopened.get().api_base_url.as_str(), reopened.get().im_host.as_str()), ("http://localhost:3000", "10.0.0.1"));
+        assert!(reopened.get().auto_connect_tcp);
     }
 
     #[test]
-    fn corrupt_file_falls_back_to_default() {
+    fn template_lives_in_the_keychain_and_only_its_identity_is_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        assert_eq!(store.view().unwrap().im_template, None);
+        assert!(store.update(SettingsPatch { im_template_b64: Some("bad!".into()), ..Default::default() }).is_err());
+
+        let view = store.update(SettingsPatch { im_template_b64: Some(format!(" {TEMPLATE} ")), ..Default::default() }).unwrap();
+        assert_eq!(view.im_template, Some(TemplateInfo { app_key: "org1#app1".into(), username: "love_100".into() }));
+        assert_eq!(store.im_template().unwrap().as_deref(), Some(TEMPLATE));
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(!json.contains(TEMPLATE), "{json}");
+        assert!(!fs::read_to_string(dir.path().join(FILE_NAME)).unwrap().contains(TEMPLATE));
+
+        // Blank keeps it; clearing removes it.
+        store.update(SettingsPatch { im_template_b64: Some(" ".into()), ..Default::default() }).unwrap();
+        assert!(store.im_template().unwrap().is_some());
+        assert_eq!(store.clear_im_template().unwrap().im_template, None);
+    }
+
+    #[test]
+    fn corrupt_or_partial_file_falls_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(FILE_NAME), b"{oops").unwrap();
-        assert_eq!(SettingsStore::open(dir.path()).unwrap().get(), AppSettings::default());
-    }
-
-    #[test]
-    fn missing_field_falls_back_to_default() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(FILE_NAME), b"{}").unwrap();
-        assert_eq!(SettingsStore::open(dir.path()).unwrap().get(), AppSettings::default());
+        assert_eq!(open(dir.path()).get(), AppSettings::default());
+        fs::write(dir.path().join(FILE_NAME), br#"{"apiBaseUrl":"https://x.com"}"#).unwrap();
+        let s = open(dir.path()).get();
+        assert_eq!((s.api_base_url.as_str(), s.im_host.as_str()), ("https://x.com", DEFAULT_IM_HOST));
     }
 }

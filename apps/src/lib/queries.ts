@@ -2,7 +2,8 @@ import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQ
 import type { ChatMessage, Conversation } from "./lit-types";
 import { rememberPeers } from "./peer-directory";
 import { compareIds } from "./read-markers";
-import { api, type Account, type AccountPatch, type AppSettings, type HxInput, type NewAccount } from "./api";
+import { connectTcp, isTcpError, setTcpStatus } from "./tcp-status";
+import { api, type Account, type AccountPatch, type AppSettings, type NewAccount, type SettingsPatch } from "./api";
 
 export const queryKeys = {
   accounts: ["accounts"] as const,
@@ -29,18 +30,32 @@ export function newestMessage(messages: readonly ChatMessage[]): ChatMessage | n
   return best;
 }
 
-export function useSettings() {
-  return useQuery({ queryKey: queryKeys.settings, queryFn: api.settings.get });
-}
+export const settingsQuery = queryOptions({ queryKey: queryKeys.settings, queryFn: api.settings.get });
+
+export const useSettings = () => useQuery(settingsQuery);
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<AppSettings>) => api.settings.update(patch),
-    onSuccess: (settings) => {
+    mutationFn: (patch: SettingsPatch) => api.settings.update(patch),
+    onSuccess: (settings, patch) => {
       qc.setQueryData(queryKeys.settings, settings);
       // Data from the old server must not be shown as fresh.
-      return qc.resetQueries({ queryKey: queryKeys.lit });
+      return Promise.all([
+        patch.apiBaseUrl !== undefined && qc.resetQueries({ queryKey: queryKeys.lit }),
+        Object.keys(patch).some((k) => k.startsWith("im")) && qc.resetQueries({ queryKey: queryKeys.hx }),
+      ]);
+    },
+  });
+}
+
+export function useClearImTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.settings.clearImTemplate(),
+    onSuccess: (settings: AppSettings) => {
+      qc.setQueryData(queryKeys.settings, settings);
+      return qc.resetQueries({ queryKey: queryKeys.hx });
     },
   });
 }
@@ -171,6 +186,11 @@ export function useSendText(accountId: string) {
   return useMutation({
     mutationFn: (v: { to: string; text: string; firstContact: boolean }) =>
       api.hx.sendText(accountId, v.to, v.text, v.firstContact),
+    // A send logs in over TCP too: its outcome updates the connection status.
+    onSuccess: () => setTcpStatus(accountId, { state: "ok", at: Date.now(), via: "send" }),
+    onError: (error) => {
+      if (isTcpError(error.message)) setTcpStatus(accountId, { state: "error", at: Date.now(), message: error.message });
+    },
     onSettled: (_data, _error, v) =>
       Promise.all([
         qc.invalidateQueries({ queryKey: historyKey(accountId, v.to) }),
@@ -205,9 +225,5 @@ export const useUpdateAccount = () =>
 
 export const useRemoveAccount = () => useAccountsMutation((account: Account) => api.accounts.remove(account.id));
 
-export const useSetHx = () => useAccountsMutation(({ id, input }: { id: string; input: HxInput }) => api.accounts.setHx(id, input));
-
-export const useClearHx = () => useAccountsMutation((id: string) => api.accounts.clearHx(id));
-
-/** An action, not cached data: each run opens a fresh TCP login. */
-export const useCheckHxConnection = () => useMutation({ mutationFn: (accountId: string) => api.hx.checkConnection(accountId) });
+/** An action, not cached data: each run opens a fresh TCP login. The result is kept in tcp-status. */
+export const useCheckHxConnection = () => useMutation({ mutationFn: connectTcp });

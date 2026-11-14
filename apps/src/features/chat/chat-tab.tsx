@@ -1,33 +1,30 @@
 import { useReducer, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-import { AlertTriangleIcon, InboxIcon, MessageSquareIcon, PlugIcon, RefreshCwIcon, UsersRoundIcon } from "lucide-react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import {
+  AlertTriangleIcon,
+  InboxIcon,
+  Loader2Icon,
+  MessageSquareIcon,
+  PlugIcon,
+  RefreshCwIcon,
+  SettingsIcon,
+  UsersRoundIcon,
+} from "lucide-react";
 import { PersonAvatar } from "@/components/account-avatar";
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { RequireAccount } from "@/components/require-account";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Account } from "@/lib/api";
 import type { ChatMessage, Conversation } from "@/lib/lit-types";
 import { usePeers, type Peer } from "@/lib/peer-directory";
-import { useConversations, useLatestMessages } from "@/lib/queries";
+import { useConversations, useLatestMessages, useSettings } from "@/lib/queries";
+import { useLogin } from "@/lib/sessions";
 import { markerKey, useReadMarkers } from "@/lib/read-markers";
 import { cn } from "@/lib/utils";
 import { isUnread, previewText, shortId, shortTime, sortByLatest } from "./chat-view";
 import { ConnectionPanel } from "./connection-panel";
-import { HxSettingsDialog } from "./hx-settings-dialog";
 import { ThreadPane } from "./thread-pane";
-
-export function ChatPage() {
-  return (
-    <>
-      <PageHeader title="Tin nhắn" description="Hội thoại của account đang dùng" />
-      {/* key: selection, connection results and form state belong to one account */}
-      <RequireAccount>{(account) => <ChatBody key={account.id} account={account} />}</RequireAccount>
-    </>
-  );
-}
 
 /**
  * `accountId:imId` pairs already contacted in this session. If the metadata
@@ -44,18 +41,16 @@ export interface OpenConversation {
   isNew: boolean;
 }
 
-function ChatBody({ account }: { account: Account }) {
-  const { to } = useSearch({ from: "/chat" });
+/** Tin nhắn tab: conversation list and the open thread of a logged-in account. */
+export function ChatTab({ account }: { account: Account }) {
+  const { to } = useSearch({ from: "/account/$accountId/chat" });
   const navigate = useNavigate();
   const conversations = useConversations(account.id);
   const peers = usePeers();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsKey, setSettingsKey] = useState(0);
+  const { data: settings } = useSettings();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
-  const openSettings = () => {
-    setSettingsKey((k) => k + 1); // fresh form each time
-    setSettingsOpen(true);
-  };
+  // Chat needs the shared server template (Cài đặt) and the account's IM identity (from login).
+  const me = settings?.imTemplate && account.im ? account.im.username : null;
 
   const listed = conversations.data?.find((c) => c.conversationId === to);
   // A conversation that is not listed is only "new" once the list has loaded:
@@ -70,25 +65,22 @@ function ChatBody({ account }: { account: Account }) {
           ? { id: to, type: 0, isNew: true }
           : null;
 
-  const select = (id: string) => navigate({ to: "/chat", search: { to: id } });
+  const select = (id: string) =>
+    navigate({ to: "/account/$accountId/chat", params: { accountId: account.id }, search: { to: id } });
 
   return (
     <div className="flex min-h-0 flex-1">
       <section aria-label="Danh sách hội thoại" className="flex w-72 shrink-0 flex-col border-r">
-        {account.hx ? (
-          <ConnectionPanel account={account} hx={account.hx} onConfigure={openSettings} />
+        {!settings ? null : me ? (
+          <ConnectionPanel account={account} username={me} settings={settings} />
         ) : (
-          <div className="space-y-2 border-b p-3">
-            <p className="text-xs text-muted-foreground">Chưa cấu hình chat: xem được danh sách nhưng chưa đọc/gửi tin.</p>
-            <Button variant="outline" className="w-full" onClick={openSettings}>
-              <PlugIcon aria-hidden />
-              Cấu hình chat
-            </Button>
+          <div className="border-b p-3">
+            <ChatSetupHint account={account} hasTemplate={!!settings.imTemplate} compact />
           </div>
         )}
         <ConversationList
           accountId={account.id}
-          me={account.hx?.username ?? null}
+          me={me}
           query={conversations}
           peers={peers}
           selectedId={to}
@@ -113,18 +105,15 @@ function ChatBody({ account }: { account: Account }) {
               <Skeleton className="h-16 w-full" />
             </div>
           )
-        ) : !account.hx ? (
-          <EmptyState
-            icon={PlugIcon}
-            title="Chưa cấu hình chat"
-            description={`Nhập IM host, login template và hxPwd (hoặc token) của ${account.label} để đọc và gửi tin.`}
-            action={<Button onClick={openSettings}>Cấu hình chat</Button>}
-          />
+        ) : !settings ? null : !me ? (
+          <div className="flex flex-1 items-center justify-center p-8">
+            <ChatSetupHint account={account} hasTemplate={!!settings.imTemplate} />
+          </div>
         ) : (
           <ThreadPane
             key={open.id}
             account={account}
-            hx={account.hx}
+            me={me}
             conversation={open}
             peer={peers.get(open.id)}
             onFirstContact={() => {
@@ -134,10 +123,54 @@ function ChatBody({ account }: { account: Account }) {
           />
         )}
       </section>
-
-      <HxSettingsDialog key={settingsKey} account={account} open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
+}
+
+/** What is missing before chat works: the shared template, or the account's IM identity. */
+function ChatSetupHint({ account, hasTemplate, compact }: { account: Account; hasTemplate: boolean; compact?: boolean }) {
+  const { login } = useLogin();
+  const [loading, setLoading] = useState(false);
+  const title = hasTemplate ? "Chưa có thông tin chat của account" : "Chưa có login template cho server chat";
+  const description = hasTemplate
+    ? "IM username và mật khẩu chat được lấy từ hồ sơ khi đăng nhập. Đăng nhập lại để lấy."
+    : "Server chat dùng chung cho mọi account: dán login template một lần trong Cài đặt.";
+  const action = hasTemplate ? (
+    <Button
+      variant="outline"
+      size={compact ? "sm" : "default"}
+      className={cn(compact && "w-full")}
+      disabled={loading}
+      onClick={async () => {
+        setLoading(true);
+        await login(account);
+        setLoading(false);
+      }}
+    >
+      {loading ? <Loader2Icon className="animate-spin" aria-hidden /> : <RefreshCwIcon aria-hidden />}
+      Đăng nhập lại
+    </Button>
+  ) : (
+    <Button
+      variant="outline"
+      size={compact ? "sm" : "default"}
+      className={cn(compact && "w-full")}
+      render={<Link to="/settings" />}
+    >
+      <SettingsIcon aria-hidden />
+      Mở Cài đặt
+    </Button>
+  );
+
+  if (compact) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">{title}: xem được danh sách nhưng chưa đọc/gửi tin.</p>
+        {action}
+      </div>
+    );
+  }
+  return <EmptyState icon={PlugIcon} title={title} description={description} action={action} />;
 }
 
 function ConversationList({

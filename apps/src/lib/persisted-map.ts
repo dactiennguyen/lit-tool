@@ -1,5 +1,6 @@
-// A small Map store kept in memory and, best effort, in localStorage.
-// Entries are kept in insertion order; the oldest are dropped past `max`.
+// A small Map store kept in memory and, best effort, in localStorage
+// (`storageKey` null = memory only). Entries are kept in insertion order; the
+// oldest are dropped past `max`.
 
 import { useSyncExternalStore } from "react";
 
@@ -12,7 +13,7 @@ export interface PersistedMap<V> {
 }
 
 export function persistedMap<V>(
-  storageKey: string,
+  storageKey: string | null,
   isValue: (v: unknown) => v is V,
   max: number,
 ): PersistedMap<V> {
@@ -20,6 +21,7 @@ export function persistedMap<V>(
   const listeners = new Set<() => void>();
 
   function load(): Map<string, V> {
+    if (storageKey === null) return new Map();
     try {
       const raw = JSON.parse(localStorage.getItem(storageKey) ?? "[]") as unknown;
       if (!Array.isArray(raw)) return new Map();
@@ -43,7 +45,7 @@ export function persistedMap<V>(
       while (next.size > max) next.delete(next.keys().next().value!);
       map = next;
       try {
-        localStorage.setItem(storageKey, JSON.stringify([...map]));
+        if (storageKey !== null) localStorage.setItem(storageKey, JSON.stringify([...map]));
       } catch {
         /* storage unavailable: memory only */
       }
