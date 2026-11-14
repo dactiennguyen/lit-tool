@@ -28,7 +28,7 @@ File đang dùng là `scripts/.env`, được Git bỏ qua. Giữ nguyên các b
 | `HX_USERNAME` | Không | IM ID dạng `love…`. Nếu không đặt, lấy từ template; nếu đặt, bắt buộc khớp template. Không phải Lit ID hiển thị, email hay business user ID. |
 | `HX_PASSWORD` | Một trong hai | Mật khẩu IM `hxPwd`, dùng để lấy access token. Không phải mật khẩu Google. |
 | `HX_ACCESS_TOKEN` | Một trong hai | Token **Hyphenate** còn hiệu lực cho cùng tài khoản. Nếu có giá trị, script dùng token này và bỏ qua bước lấy token bằng password. |
-| `HX_REST_BASE` | Không | Mặc định `https://a1-sgp-ga.easemob.com`; code yêu cầu HTTPS host thuộc `easemob.com`. |
+| `HX_REST_BASE` | Không | Mặc định `https://a1-sgp-ga.easemob.com`; code yêu cầu HTTPS cổng 443, host thuộc `easemob.com` hoặc `easecdn.com`. |
 
 App key được đọc từ template, hiện là `1102190223222824#lit`; không có biến `HX_APP_KEY` trong bản này. Token OpenIM và session Litmatch `sid` không thay thế token Hyphenate.
 

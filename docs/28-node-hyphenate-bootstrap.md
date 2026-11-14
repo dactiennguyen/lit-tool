@@ -51,7 +51,7 @@ Bỏ `--dry-run` để kiểm tra kết nối thật. Nếu dùng `.private/hx-n
 ## API và logic
 
 1. `GET https://rs.easemob.com/easemob/server.json?app_key=<URL-encoded app key>&_v=<timestamp>` trả cấu hình server, không cần token người dùng. Đọc `msync-im.hosts`, bỏ trùng host/port, giữ thứ tự response. Chọn phần tử đầu tiên hoặc `--index N`; không random hay thử lại tự động. Host có IP thì dùng IP, nếu không dùng domain. Đây là kết quả discovery mới, có thể khác cache Android và thay đổi theo lần gọi.
-2. Chọn REST HTTPS trong response, hoặc dùng `HX_REST_BASE` đã chỉ định. Token được lấy qua `POST /{org}/{app}/token` với username/password bằng helper hiện có.
+2. Chọn REST HTTPS trong response, hoặc dùng `HX_REST_BASE` đã chỉ định. Validator chấp nhận tên miền `easemob.com` và `easecdn.com` cùng các subdomain, chỉ HTTPS cổng 443. Token được lấy qua `POST /{org}/{app}/token` với username/password bằng helper hiện có. Nếu không có REST hợp lệ và không có override, mới dùng REST mặc định.
 3. Tạo `JID` và `Provision` protobuf bằng code JS từ app key/username, UUID client mới và timestamp phiên. Đặt `actionVersion="v6.0"`, lưu `authToken={"token":""}` trong mẫu. Client nhận diện là Node.js và khai báo hệ điều hành của máy chạy; không chép model/UUID điện thoại.
 4. Encode protobuf `MSync` (`command=3`) thành Base64 rồi log `HX_LOGIN_TEMPLATE_B64`. Đây là logic dựng mẫu tại máy, không phải API trả nguyên Base64.
 5. Khi đăng nhập, `buildLoginFrame` chèn `authToken={"token":"$t$<access token>"}` cho mẫu v6 rồi thêm prefix độ dài 4 byte big-endian. Mẫu Android v3 cũ vẫn dùng token không có tiền tố `$t$`.
