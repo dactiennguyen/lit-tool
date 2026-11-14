@@ -1,0 +1,22 @@
+# Large / binary reverse-engineering artifacts (not tracked)
+*.apk
+*.xapk
+*.so
+base-decompiled/
+native/
+
+# Node
+node_modules/
+/.env
+/.env.*
+!/.env.example
+/scripts/.env
+/scripts/.env.*
+!/scripts/.env.example
+# Private responses/samples at any depth (e.g. a script run from a moved folder).
+.private/
+/docs/data/google-login-request.actual.json
+
+# OS / editor
+.DS_Store
+*.swp

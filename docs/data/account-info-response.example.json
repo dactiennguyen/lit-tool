@@ -1,0 +1,13 @@
+{
+  "data": {
+    "amethysts": 0,
+    "diamonds": 0,
+    "frozen_diamonds": 0,
+    "is_first_charge_diamonds": false,
+    "match_membership_time": 0,
+    "stars": 0,
+    "video_member_time": 0
+  },
+  "result": 0,
+  "success": true
+}

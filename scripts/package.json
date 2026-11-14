@@ -1,0 +1,39 @@
+{
+  "name": "scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Litmatch / Hyphenate client scripts (TypeScript, run directly with Node 22.18+ type stripping)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts",
+    "check": "npm run typecheck && npm test",
+    "im:connect": "node src/cli/hyphenate-connect.ts",
+    "im:history": "node src/cli/conversations.ts",
+    "account": "node src/cli/account-info.ts",
+    "home:online": "node src/cli/home-online.ts",
+    "user:info": "node src/cli/user-info.ts",
+    "startup": "node src/cli/startup-api.ts",
+    "eye": "node src/cli/eye.ts",
+    "eye:device": "node src/cli/eye-device.ts",
+    "siua": "node src/cli/siua.ts",
+    "shadow": "node src/cli/shadow.ts",
+    "litsign": "node src/cli/litsign.ts",
+    "login:curl": "node src/cli/build-login-curl.ts",
+    "login:google": "node src/cli/login-google.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "protobufjs": "8.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "crypto-js": "^4.2.0",
+    "typescript": "^5.9.3"
+  }
+}

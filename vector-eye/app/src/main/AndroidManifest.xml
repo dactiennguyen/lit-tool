@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Eye test module" android:hasCode="true" android:extractNativeLibs="false">
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription" android:value="LitEye user 10 experiment" />
+        <meta-data android:name="xposedminversion" android:value="82" />
+    </application>
+</manifest>

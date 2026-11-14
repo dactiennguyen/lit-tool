@@ -1,0 +1,1912 @@
+{
+    "data": {
+        "has_next": true,
+        "user_infos": [
+            {
+                "user_id": "6a2d90bd16cc94b3b9344fff",
+                "avatar": "fa644ef4-c007-11ee-b5f9-00163e0c48c2",
+                "gender": "girl",
+                "nickname": "Ngân ngáo ở 🇹🇼",
+                "huanxin_id": "love146586706970185",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2002-02-02",
+                "age": 24,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1789276727,
+                "bio": "kím ny ở đài🪳🪳🪳\nMún wen bt có ny nc ny 🐍\nTìm bạn ở đài 🙂\nĐộc thân nhưng không vui tính 😒",
+                "tag_str": "Dễ gần, Không hút thuốc, Không uống rượu, Thú cưng, Có hình xăm, Kết bạn mới, Không nói chuyện nhạy cảm, Đồ ăn cay, Biển",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7438683448,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "TW",
+                "ip_city": "Taichung",
+                "cover_photo": "user_profile_background_6a2d90bd16cc94b3b9344fff_coverPhoto_21_1789970680651.png",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1781371103,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2002,
+                    "month": 2,
+                    "day": 2
+                },
+                "create_time": 1781371069.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1792650076,
+                    "is_show": false,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": -1,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 33,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0a",
+                        "tag_name": "Không hút thuốc"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0b",
+                        "tag_name": "Không uống rượu"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a12",
+                        "tag_name": "Thú cưng"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a1c",
+                        "tag_name": "Có hình xăm"
+                    },
+                    {
+                        "tag_id": "641af89724fa021497046640",
+                        "tag_name": "Kết bạn mới"
+                    },
+                    {
+                        "tag_id": "689449d3a2c77a7d0f15093b",
+                        "tag_name": "Không nói chuyện nhạy cảm"
+                    },
+                    {
+                        "tag_id": "641c12e262ef023c91345ad7",
+                        "tag_name": "Đồ ăn cay"
+                    },
+                    {
+                        "tag_id": "641c3c7c62ef0214061f9b7e",
+                        "tag_name": "Biển"
+                    }
+                ],
+                "moi_value": 0.0408
+            },
+            {
+                "user_id": "6abb473cb0484ae962a73d25",
+                "avatar": "b1a9146e-04e2-11ee-bd9a-00163e0aec1f",
+                "gender": "girl",
+                "nickname": "Phương ",
+                "huanxin_id": "love147515436472468",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "1990-09-29",
+                "age": 36,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1790921674,
+                "bio": "Tim bạn nhậu _ Thái Bình",
+                "tag_str": "Nấu ăn",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7788304147,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Hanoi",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1790658473,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 1990,
+                    "month": 9,
+                    "day": 29
+                },
+                "create_time": 1790658364.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1790749582,
+                    "is_show": false,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 1,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fishing_kitten": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 13,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "68944959268a25b012150a13",
+                        "tag_name": "Nấu ăn"
+                    }
+                ],
+                "moi_value": 0.1524
+            },
+            {
+                "user_id": "6a378d09a6564d56fd5602cc",
+                "avatar": "user_avatar_823b6a8a-d72d-11f1-a9b8-525400358696",
+                "gender": "girl",
+                "nickname": "Bé An🌻",
+                "huanxin_id": "love146652148118954",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "1995-07-23",
+                "age": 31,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1782305655,
+                "bio": "Đồng Nai Say Hi🕊️\n⬆️M7_IB",
+                "tag_str": "Dễ gần, Dễ thương, Truyền thống, Sư Tử",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7462065084,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Bien Hoa",
+                "cover_photo": "user_profile_background_6a378d09a6564d56fd5602cc_coverPhoto_21_1782045745647.png",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1782025557,
+                "region": "vi",
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 1995,
+                    "month": 7,
+                    "day": 23
+                },
+                "create_time": 1782025481.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "",
+                    "icon": "",
+                    "expire_time": 0,
+                    "is_show": false,
+                    "mood_name": ""
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 153,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    },
+                    {
+                        "tag_id": "641c364d90f0023c495da793",
+                        "tag_name": "Truyền thống"
+                    },
+                    {
+                        "tag_id": "641c32eb62ef027211f599b5",
+                        "tag_name": "Sư Tử"
+                    }
+                ],
+                "moi_value": 0.6211
+            },
+            {
+                "user_id": "6915854490cd5115272a57ff",
+                "avatar": "user_avatar_58f95daa-7461-11f1-948a-525400effe1d",
+                "gender": "girl",
+                "nickname": "hà Linh",
+                "huanxin_id": "love144751405249545",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-03-23",
+                "age": 23,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1773280338,
+                "bio": "🍀mình tên Hà linh 2k3 nghề nghiệp👉 gv 👉 hiện tại độc thân 🤭👉tính tình 👉 thẳng thắn vui tính 🤗 thích quen bạn nam hơn tuổi 🍀",
+                "tag_str": "Hài hước, Hướng nội , Dễ gần, Không thích đi bar, Hoạt ngôn, Giáo viên, Hiến máu, Đừng lựa chọn an nhàn khi còn trẻ, Đọc sách",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 6798930140,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Phu Tho Hoa",
+                "cover_photo": "user_profile_background_6915854490cd5115272a57ff_67c56e8b811d6a0217fd2144417f1c1d_1794187319675",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1763018074,
+                "region": "vi",
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 3,
+                    "day": 23
+                },
+                "create_time": 1763018052.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "madly_busy",
+                    "icon": "118bffee-c17d-11ed-aaa8-00163e049828",
+                    "expire_time": 1792476677,
+                    "is_show": false,
+                    "mood_name": "Bận rộn"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 5,
+                        "avatar": "52a020e8-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 968,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "5ff82e258a6f3e1add659860",
+                        "tag_name": "Hài hước"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a06",
+                        "tag_name": "Hướng nội "
+                    },
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0c",
+                        "tag_name": "Không thích đi bar"
+                    },
+                    {
+                        "tag_id": "61d3e7a683cb7d6ef61c785f",
+                        "tag_name": "Hoạt ngôn"
+                    },
+                    {
+                        "tag_id": "641d161a3fb50008f5ba065f",
+                        "tag_name": "Giáo viên"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a19",
+                        "tag_name": "Hiến máu"
+                    },
+                    {
+                        "tag_id": "68944bbea2c77a7d0f150a75",
+                        "tag_name": "Đừng lựa chọn an nhàn khi còn trẻ"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a23b",
+                        "tag_name": "Đọc sách"
+                    }
+                ],
+                "moi_value": 4.7473
+            },
+            {
+                "user_id": "699145e9d5f2f8acabe36de5",
+                "avatar": "fa672fe8-c007-11ee-9485-00163e0c0e20",
+                "gender": "girl",
+                "nickname": "ngọc ngânnnnnnnn",
+                "huanxin_id": "love145562429776073",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2000-03-05",
+                "age": 26,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1771392406,
+                "bio": "em 2k\nem ở nha trang \nquê em ở bình định \nem là con gái\ncao 1m65\nem tên thật là ngọc ngân",
+                "tag_str": "Hài hước, Hướng ngoại , Dễ gần, Không thích đi bar, Không nổi nóng, Gen z, Biết nhiều ngôn ngữ, Thú cưng, Chăm sóc động vật",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7070047421,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1771128354,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2000,
+                    "month": 3,
+                    "day": 5
+                },
+                "create_time": 1771128297.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1771214963,
+                    "is_show": false,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "51de193a-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 0,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "5ff82e258a6f3e1add659860",
+                        "tag_name": "Hài hước"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a07",
+                        "tag_name": "Hướng ngoại "
+                    },
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0c",
+                        "tag_name": "Không thích đi bar"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0d",
+                        "tag_name": "Không nổi nóng"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a23f",
+                        "tag_name": "Gen z"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a10",
+                        "tag_name": "Biết nhiều ngôn ngữ"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a12",
+                        "tag_name": "Thú cưng"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a1b",
+                        "tag_name": "Chăm sóc động vật"
+                    }
+                ],
+                "moi_value": 0.0075
+            },
+            {
+                "user_id": "67da3d44b63b366455622f81",
+                "avatar": "user_avatar_de9c44fa-c37f-11f1-b002-525400364e82",
+                "gender": "girl",
+                "nickname": "tôm",
+                "huanxin_id": "love142685178078761",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-05-07",
+                "age": 23,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1749307462,
+                "bio": "Biên Hòa",
+                "tag_str": "",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 6185999194,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1742355799,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 5,
+                    "day": 7
+                },
+                "create_time": 1742355780.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1791595441,
+                    "is_show": false,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 94,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [],
+                "moi_value": 0.044
+            },
+            {
+                "user_id": "69e781863e1aec9fa4b3177e",
+                "avatar": "fa66faa0-c007-11ee-b5f9-00163e0c48c2",
+                "gender": "girl",
+                "nickname": "anh thư",
+                "huanxin_id": "love146127565452659",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-07-20",
+                "age": 23,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1777124064,
+                "bio": "e cần ng bên cạnh e",
+                "tag_str": "Đã đi nhiều nước, Giúp người khuyết tật, Tình nguyện viên cứu trợ, Chăm sóc động vật, Hiến máu, Anime, Tâm hồn nghệ thuật, Thể thao, Cú đêm",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7269727900,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Nam Định",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1776779741,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 7,
+                    "day": 20
+                },
+                "create_time": 1776779654.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "wanna_chat",
+                    "icon": "8fd2ebfe-04fa-11ee-a2ea-00163e0ae578",
+                    "expire_time": 1777783160,
+                    "is_show": false,
+                    "mood_name": "Muốn chat"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": -1,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 1,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "51de193a-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 0,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "68944959268a25b012150a1d",
+                        "tag_name": "Đã đi nhiều nước"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a1a",
+                        "tag_name": "Giúp người khuyết tật"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a18",
+                        "tag_name": "Tình nguyện viên cứu trợ"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a1b",
+                        "tag_name": "Chăm sóc động vật"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a19",
+                        "tag_name": "Hiến máu"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a17",
+                        "tag_name": "Hoạt hình"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a16",
+                        "tag_name": "Tâm hồn nghệ thuật"
+                    },
+                    {
+                        "tag_id": "61d3e7a683cb7d6ef61c785b",
+                        "tag_name": "Thể thao"
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a78",
+                        "tag_name": "Cú đêm"
+                    }
+                ],
+                "moi_value": 0.3684
+            },
+            {
+                "user_id": "610175845567016f668a62ad",
+                "avatar": "user_avatar_2901f3b4-c263-11f1-b6cb-525400fc4864",
+                "gender": "girl",
+                "nickname": "Đường khom ngọt",
+                "huanxin_id": "love131198156756970",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-10-14",
+                "age": 23,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 0,
+                "bio": "sg đâyy neee🫂",
+                "tag_str": "",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 1618146114,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 0,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 10,
+                    "day": 14
+                },
+                "create_time": 1627485572.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "energetic",
+                    "icon": "118c3a4a-c17d-11ed-bea2-00163e042f67",
+                    "expire_time": 1792852407,
+                    "is_show": false,
+                    "mood_name": "Vui vẻ!!"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": 109
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 4,
+                        "avatar": "52abf440-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 548,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [],
+                "moi_value": 0.0571
+            },
+            {
+                "user_id": "6732bab637e5c91487971bfe",
+                "avatar": "41c62c60-a09d-11ef-9685-2e8ece3299ca",
+                "gender": "girl",
+                "nickname": "ngxau m6",
+                "huanxin_id": "love141587383952418",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2000-12-15",
+                "age": 25,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1731666950,
+                "bio": "Bến Tre",
+                "tag_str": "Dễ gần, Kết bạn mới, Muốn trò chuyện, Free fire, Liên quân",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 5867926467,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Bến Tre",
+                "cover_photo": "6732bab637e5c91487971bfe_0ea7c6001e82177db58e72973f886db8_1751872806942",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1731377869,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": true,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2000,
+                    "month": 12,
+                    "day": 15
+                },
+                "create_time": 1731377846.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "wanna_chat",
+                    "icon": "8fd2ebfe-04fa-11ee-a2ea-00163e0ae578",
+                    "expire_time": 1787575926,
+                    "is_show": false,
+                    "mood_name": "Muốn chat"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "lion_tiger": false,
+                        "sky_wheel": true,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": 195
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 103,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "641af89724fa021497046640",
+                        "tag_name": "Kết bạn mới"
+                    },
+                    {
+                        "tag_id": "641af7d524fa02148349cdcf",
+                        "tag_name": "Muốn trò chuyện"
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a73",
+                        "tag_name": "Free fire"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a241",
+                        "tag_name": "Liên quân"
+                    }
+                ],
+                "moi_value": 0.0714
+            },
+            {
+                "user_id": "6ae0bbe55bd0b90d3982f031",
+                "avatar": "b1aafe50-04e2-11ee-a136-00163e0ae578",
+                "gender": "girl",
+                "nickname": "cô cô",
+                "huanxin_id": "love147760906176726",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "1988-01-01",
+                "age": 38,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1793978440,
+                "bio": "lịch sự Nói thật app này khó quá hình ai cũng giống ai ,rồi không biết ai để nhắn tin luôn, nên không nhớ ,các bạn đừng buồn nha hơi bị rối màn hình đại diện giống không",
+                "tag_str": "Dễ thương, Kết bạn mới",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7878366732,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1793113093,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 1988,
+                    "month": 1,
+                    "day": 1
+                },
+                "create_time": 1793113061.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "",
+                    "icon": "",
+                    "expire_time": 0,
+                    "is_show": false,
+                    "mood_name": ""
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": -1,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fishing_kitten": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 13,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    },
+                    {
+                        "tag_id": "641af89724fa021497046640",
+                        "tag_name": "Kết bạn mới"
+                    }
+                ],
+                "moi_value": 0.0
+            },
+            {
+                "user_id": "6aa61299488573a43d86f8d3",
+                "avatar": "b1a9146e-04e2-11ee-bd9a-00163e0aec1f",
+                "gender": "girl",
+                "nickname": "Tuyết Mùa Hè",
+                "huanxin_id": "love147376463338460",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "1993-09-25",
+                "age": 33,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1789751781,
+                "bio": "k hỏi tuổi (già rồi), k hỏi riêng tư (độc thân cả kiếp)..",
+                "tag_str": "Hướng nội , Cú đêm, Dễ gần",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7736287435,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Hanoi",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1789268704,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 1993,
+                    "month": 9,
+                    "day": 25
+                },
+                "create_time": 1789268633.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "low_mood",
+                    "icon": "118aebf4-c17d-11ed-9b7b-00163e042f67",
+                    "expire_time": 1790413632,
+                    "is_show": false,
+                    "mood_name": "Mệt mỏi"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fishing_kitten": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 30,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "68944959268a25b012150a06",
+                        "tag_name": "Hướng nội "
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a78",
+                        "tag_name": "Cú đêm"
+                    },
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    }
+                ],
+                "moi_value": 0.5714
+            },
+            {
+                "user_id": "6691121b9f851a15d13344d4",
+                "avatar": "fa62d33a-c007-11ee-8583-00163e0c48c2",
+                "gender": "girl",
+                "nickname": "lyy",
+                "huanxin_id": "love140527938043955",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2004-08-12",
+                "age": 22,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1730828695,
+                "bio": "chuppyy❤️\n\nNhơn trạch - Đồng Naii \n\n2004 - SingleMom 👶",
+                "tag_str": "Hài hước, Gen z, Cô đơn, Dễ gần, Dễ thương, Cú đêm, Yên tĩnh, Muốn trò chuyện, Kết bạn mới",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 5580339466,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "6691121b9f851a15d13344d4_d7426c074e203e4a66e4443b7bcf010e_1730568235951",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1720783406,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2004,
+                    "month": 8,
+                    "day": 12
+                },
+                "create_time": 1720783387.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1772431951,
+                    "is_show": false,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "lion_tiger": false,
+                        "sky_wheel": true,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 60,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "5ff82e258a6f3e1add659860",
+                        "tag_name": "Hài hước"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a23f",
+                        "tag_name": "Gen z"
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a7d",
+                        "tag_name": "Cô đơn"
+                    },
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a78",
+                        "tag_name": "Cú đêm"
+                    },
+                    {
+                        "tag_id": "641c36b062ef023c8d36b66c",
+                        "tag_name": "Yên tĩnh"
+                    },
+                    {
+                        "tag_id": "641af7d524fa02148349cdcf",
+                        "tag_name": "Muốn trò chuyện"
+                    },
+                    {
+                        "tag_id": "641af89724fa021497046640",
+                        "tag_name": "Kết bạn mới"
+                    }
+                ],
+                "moi_value": 0.0816
+            },
+            {
+                "user_id": "6af724113874915cfee20513",
+                "avatar": "fa636a48-c007-11ee-ac49-00163e0c0e20",
+                "gender": "girl",
+                "nickname": "Yến Trangg",
+                "huanxin_id": "love147907752118612",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-04-09",
+                "age": 23,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": null,
+                "frame_expire_time": 0,
+                "bio": "alo ox hảa",
+                "tag_str": "Hướng nội , Hài hước, Hướng ngoại , Dễ gần, Dễ thương",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7929008726,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Tam Ky",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1794581548,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 4,
+                    "day": 9
+                },
+                "create_time": 1794581521.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "seeking_relationship",
+                    "icon": "119bb448-c17d-11ed-9c90-00163e042f67",
+                    "expire_time": 1794668233,
+                    "is_show": true,
+                    "mood_name": "Tìm mối quan hệ"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "fishing_kitten": false,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": -1
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "51de193a-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 0,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "68944959268a25b012150a06",
+                        "tag_name": "Hướng nội "
+                    },
+                    {
+                        "tag_id": "5ff82e258a6f3e1add659860",
+                        "tag_name": "Hài hước"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a07",
+                        "tag_name": "Hướng ngoại "
+                    },
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    }
+                ],
+                "moi_value": 0.0847
+            },
+            {
+                "user_id": "6a5c3f02f5b2340516a4aa09",
+                "avatar": "user_avatar_8f98818c-d763-11f1-a165-52540016a465",
+                "gender": "girl",
+                "nickname": "Bé Meo Meo 😝",
+                "huanxin_id": "love146892633859711",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2004-10-20",
+                "age": 22,
+                "frame_id": "69bcb669176bd1eddfea0517",
+                "frame_fileid": "",
+                "frame_bag_version": "v2",
+                "frame_expire_time": 1794763952,
+                "bio": "1m45🥺\n34kg🥺😝\nbướng, cọc tính, lạnh lùng Dell hiền đou 😈\nemieuuu:@(name:🥰uyên😘(bống)😍,id:6a62102fc3c74eb94c1084bc)  \nemieuuu:@(name:🐷^con vợ^🐷,id:6ab890e1076a0eefa483a282) \npé yeuuu:@(name:Bố几ᎶIㄩ,id:69497b60118a9c7fdef4ce79) \npé yeuuuu:@(name:Minh thơ,id:6add65a44d68c654efcf7337) \nvo yeuu:@(name:ᰔᩚ.Bunny🌷,id:6571b4efe1e9a93f2a92b874) \nẩn 🥺",
+                "tag_str": "Dễ thương, Nhạt nhẽo, Cô đơn",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 7549817197,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Nho Quan",
+                "cover_photo": "user_profile_background_6a5c3f02f5b2340516a4aa09_ec432b13d3c003de3d670e308d5cf573_1788972221338",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1784430384,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2004,
+                    "month": 10,
+                    "day": 20
+                },
+                "create_time": 1784430338.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": true,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "low_mood",
+                    "icon": "118aebf4-c17d-11ed-9b7b-00163e042f67",
+                    "expire_time": 1794611625,
+                    "is_show": true,
+                    "mood_name": "Mệt mỏi"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 0,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": true,
+                        "fishing_kitten": true,
+                        "fortune_football": false,
+                        "lion_tiger": false,
+                        "sky_wheel": true,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 3,
+                        "avatar": "99c83d2a-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": 22110
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 15,
+                        "avatar": "52a827b6-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 34332,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    },
+                    {
+                        "tag_id": "641c36da62ef027211f5b524",
+                        "tag_name": "Nhạt nhẽo"
+                    },
+                    {
+                        "tag_id": "5ef182cd3fff22494fbd5a7d",
+                        "tag_name": "Cô đơn"
+                    }
+                ],
+                "moi_value": 0.0095
+            },
+            {
+                "user_id": "681f1aa53f5e3c4c674b1908",
+                "avatar": "user_avatar_ea27dab4-da77-11f1-b97b-52540072af64",
+                "gender": "girl",
+                "nickname": "nal",
+                "huanxin_id": "love143136490184329",
+                "is_vip": false,
+                "vip_time": 0,
+                "birthdate": "2003-12-01",
+                "age": 22,
+                "frame_id": "",
+                "frame_fileid": "",
+                "frame_bag_version": "",
+                "frame_expire_time": 1767798815,
+                "bio": "2008 \n1m55-40kg",
+                "tag_str": "Dễ gần, Học sinh, Tuổi trẻ đáng giá bao nhiêu, Dám bị ghét, Dễ thương, Thể thao, Không toxic",
+                "party_top_three": -1,
+                "role": 0,
+                "is_official_push_account": false,
+                "lit_id": 6318328329,
+                "removed": false,
+                "country": "VN",
+                "ip_country": "VN",
+                "ip_city": "Ho Chi Minh City",
+                "cover_photo": "",
+                "polite_score": 100,
+                "city_card_expire_time": 0,
+                "register_time": 1766238439,
+                "region": "vi",
+                "online": true,
+                "new_party": "",
+                "party": "",
+                "prefer": 0,
+                "rec_reason": "",
+                "recommend_tag": "",
+                "recommend_tag_detail": "",
+                "followed": false,
+                "rec_debug_info": "",
+                "moi_hot": true,
+                "material_sentence": {},
+                "is_toy_avatar": false,
+                "bond_phone": false,
+                "is_digital_avatar": false,
+                "last_pay_ts": 0,
+                "birth_info": {
+                    "year": 2003,
+                    "month": 12,
+                    "day": 1
+                },
+                "create_time": 1746868901.0,
+                "vip_info": {
+                    "level": 0,
+                    "level_maintain_review_time": 0,
+                    "expire_time_checkpoint": 0,
+                    "init_flag": false,
+                    "show_vip_status": 1,
+                    "expire_time": 0
+                },
+                "mood_status_info": {
+                    "name": "hate_to_be_alone",
+                    "icon": "119a64e4-c17d-11ed-ae52-00163e049828",
+                    "expire_time": 1794121229,
+                    "is_show": false,
+                    "mood_name": "Ghét ở một mình"
+                },
+                "precious_no_info": {},
+                "ext_info": {
+                    "last_light_id": null,
+                    "last_light_expired_ts": 0,
+                    "choose_loc_source": 0,
+                    "cca_id": null,
+                    "feedback_bot_tag": "",
+                    "feedBack_bot_nickname": "",
+                    "memory": "",
+                    "underage_ad_policy": 1,
+                    "game_record": {
+                        "claw_carnival": false,
+                        "diamond_slot_v2_ext": false,
+                        "dice_war": false,
+                        "lion_tiger": false,
+                        "sky_wheel": false,
+                        "texas_cowboy": false
+                    },
+                    "change_loc_siua_status": 0,
+                    "modify_loc_source": 0
+                },
+                "wearing_toy": {},
+                "party_level_info": {
+                    "sent": {
+                        "diamonds": 0,
+                        "level": 0,
+                        "avatar": "998fb996-5d6e-11eb-8b66-00163e022423",
+                        "new_diamonds": 39
+                    },
+                    "received": {
+                        "diamonds": 0,
+                        "level": 1,
+                        "avatar": "51e81ff2-5705-11ec-80d6-00163e02a5e5",
+                        "new_diamonds": 38,
+                        "accelerate_diamonds": 0
+                    }
+                },
+                "tags": [
+                    {
+                        "tag_id": "641c360c90f0023c495da6da",
+                        "tag_name": "Dễ gần"
+                    },
+                    {
+                        "tag_id": "641d153662ef0216fc39fa72",
+                        "tag_name": "Học sinh"
+                    },
+                    {
+                        "tag_id": "68944bbea2c77a7d0f150a79",
+                        "tag_name": "Tuổi trẻ đáng giá bao nhiêu"
+                    },
+                    {
+                        "tag_id": "68944bbea2c77a7d0f150a7f",
+                        "tag_name": "Dám bị ghét"
+                    },
+                    {
+                        "tag_id": "6128866883cb7d440ea1a242",
+                        "tag_name": "Dễ thương"
+                    },
+                    {
+                        "tag_id": "61d3e7a683cb7d6ef61c785b",
+                        "tag_name": "Thể thao"
+                    },
+                    {
+                        "tag_id": "68944959268a25b012150a0e",
+                        "tag_name": "Không toxic"
+                    }
+                ],
+                "moi_value": 0.0857
+            }
+        ],
+        "next_start": 0
+    },
+    "result": 0,
+    "success": true,
+    "trace_id": "3c4a24a3e1fe4f30a9ef4e42cfbb931b"
+}

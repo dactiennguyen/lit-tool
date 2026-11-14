@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "captured": "2026-11-13, user 10, 1 lượt ~22s",
+    "method": "libssl.so!SSL_write hook (frida race-attach)",
+    "note": "path đã bỏ query. Core API www.litatom.com đi HTTP/2 nên chỉ thấy gói nhị phân."
+  },
+  "litatom_hosts": [
+    {
+      "method": "h2/binary",
+      "host": "www.litatom.com",
+      "path": "(HTTP/2 — header HPACK, không đọc thẳng)"
+    },
+    {
+      "method": "GET",
+      "host": "baishan.litatom.com",
+      "path": "/api/sns/v1/lit/video/ceremony_hall_top_bg.webp"
+    },
+    {
+      "method": "POST",
+      "host": "ss.litatom.com",
+      "path": "/sync"
+    }
+  ],
+  "third_party": [
+    {
+      "method": "POST",
+      "host": "api16-access-wf-sg.pangle.io",
+      "path": "/ssdk/sd/token"
+    },
+    {
+      "method": "GET",
+      "host": "cdn2.inner-active.mobi",
+      "path": "/ia-sdk-config/config_android.json"
+    },
+    {
+      "method": "GET",
+      "host": "cdn2.inner-active.mobi",
+      "path": "/ia-sdk-config/apps/147932/147932.json"
+    },
+    {
+      "method": "POST",
+      "host": "api16-access-wf-sg.pangle.io",
+      "path": "/api/ad/union/sdk/stats/batch/"
+    },
+    {
+      "method": "GET",
+      "host": "cdn2.inner-active.mobi",
+      "path": "/ia-sdk-config/features_config.json"
+    },
+    {
+      "method": "POST",
+      "host": "ms.applovin.com",
+      "path": "/5.0/i"
+    },
+    {
+      "method": "POST",
+      "host": "rt.applovin.com",
+      "path": "/4.0/pix"
+    },
+    {
+      "method": "POST",
+      "host": "d.applovin.com",
+      "path": "/2.0/device"
+    },
+    {
+      "method": "POST",
+      "host": "api16-access-wf-sg.pangle.io",
+      "path": "/api/ad/union/sdk/get_ads/"
+    },
+    {
+      "method": "POST",
+      "host": "api16-dual-event-sg2.pangle.io",
+      "path": "/service/2/dual_events/"
+    },
+    {
+      "method": "GET",
+      "host": "googleads.g.doubleclick.net",
+      "path": "/pagead/interaction/"
+    },
+    {
+      "method": "GET",
+      "host": "cdn-f.adsmoloco.com",
+      "path": "/SFRe5UxYekR05GE8/creative/lks7j9ma_snr7nzx_zzsx4u8vtijl6vxd_fhd_h265_mpvs_2500_c120s_opt.mp4"
+    }
+  ]
+}

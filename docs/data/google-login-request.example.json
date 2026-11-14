@@ -1,0 +1,18 @@
+{
+  "query": {
+    "loc": "DE",
+    "uuid": "966bbd0563ea67e3",
+    "version": "7.77.0",
+    "lang": "vi",
+    "platform": "android",
+    "model": "Pixel 6a",
+    "loctype": "0",
+    "os": "33",
+    "net_type": "wifi",
+    "app_source": "litmatch",
+    "appid": "NxUUhRSQH3qPJmY2Vn/edRz4vrc="
+  },
+  "litSignFlag": "1",
+  "clockOffsetMs": 0,
+  "userAgent": "Dalvik/2.1.0 (Linux; U; Android 13; M2101K7BG Build/TP1A.220624.014)"
+}
