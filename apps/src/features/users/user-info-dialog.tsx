@@ -62,7 +62,7 @@ export function UserInfoDialog({
             </Button>
           </div>
         ) : (
-          <ProfileDetails data={info.data} fallbackName={shown?.name ?? ""} updatedAt={info.dataUpdatedAt} />
+          <ProfileDetails profile={info.data} fallbackName={shown?.name ?? ""} updatedAt={info.dataUpdatedAt} />
         )}
       </DialogContent>
     </Dialog>

@@ -1,0 +1,45 @@
+{
+  "users": [
+    {
+      "userId": "000000000000000000000001",
+      "litId": 1000000001,
+      "nickname": "test_user",
+      "avatar": "00000000-0000-0000-0000-000000000001",
+      "gender": "boy",
+      "age": 25,
+      "bio": "Test bio",
+      "country": "VN",
+      "region": "vi",
+      "ipCity": "Test City",
+      "ipCountry": "VN",
+      "huanxinId": "love000000000000000001",
+      "tags": [
+        {
+          "tagId": "000000000000000000000003",
+          "tagName": "Thể thao"
+        }
+      ],
+      "moodStatusInfo": {
+        "moodName": "Muốn chat",
+        "isShow": true
+      },
+      "follower": 0,
+      "following": 0,
+      "isVip": false,
+      "vipInfo": {
+        "level": 0,
+        "expireTime": 0
+      },
+      "createTime": 1700000000,
+      "activeInfo": {
+        "time": 1700000000,
+        "timeDesc": "Hoạt động"
+      },
+      "birthdate": null,
+      "accountInfo": null,
+      "online": true
+    }
+  ],
+  "hasNext": true,
+  "nextStart": 15
+}

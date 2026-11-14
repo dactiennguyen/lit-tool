@@ -1,18 +1,19 @@
 import { PersonAvatar } from "@/components/account-avatar";
 import { Card, CardContent } from "@/components/ui/card";
-import { toProfileView, type Scalar } from "./profile-view";
+import type { UserProfile } from "@/lib/lit-types";
+import { toProfileView } from "./profile-view";
 
-/** Renders a user/profile JSON response: header, scalar fields, raw JSON. */
+/** Renders a typed profile: header card, then the known fields the server sent. */
 export function ProfileDetails({
-  data,
+  profile,
   fallbackName,
   updatedAt,
 }: {
-  data: Record<string, unknown>;
+  profile: UserProfile;
   fallbackName: string;
   updatedAt?: number;
 }) {
-  const view = toProfileView(data);
+  const view = toProfileView(profile);
   const name = view.name ?? fallbackName;
 
   return (
@@ -34,38 +35,20 @@ export function ProfileDetails({
 
       <Card>
         <CardContent>
-          {view.fields.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Response không có trường đơn giản nào, xem JSON bên dưới.</p>
+          {view.rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Server không gửi thông tin chi tiết nào cho user này.</p>
           ) : (
             <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-2 text-sm">
-              {view.fields.map(([key, value]) => (
-                <div key={key} className="contents">
-                  <dt className="truncate font-mono text-xs leading-5 text-muted-foreground">{key}</dt>
-                  <dd className="min-w-0 break-words">
-                    <FieldValue value={value} />
-                  </dd>
+              {view.rows.map((row) => (
+                <div key={row.label} className="contents">
+                  <dt className="truncate leading-5 text-muted-foreground">{row.label}</dt>
+                  <dd className="min-w-0 break-words">{row.value}</dd>
                 </div>
               ))}
             </dl>
           )}
         </CardContent>
       </Card>
-
-      <details className="rounded-xl border bg-card text-sm">
-        <summary className="cursor-pointer rounded-xl px-4 py-3 font-medium outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50">
-          JSON gốc
-        </summary>
-        <pre className="max-h-96 overflow-auto border-t p-4 font-mono text-xs leading-relaxed">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </details>
     </div>
   );
-}
-
-function FieldValue({ value }: { value: Scalar }) {
-  if (typeof value === "boolean") return <span className="font-mono text-xs">{value ? "true" : "false"}</span>;
-  if (typeof value === "number") return <span className="font-mono text-xs tabular-nums">{value}</span>;
-  if (value === "") return <span className="text-muted-foreground">—</span>;
-  return <span>{value}</span>;
 }

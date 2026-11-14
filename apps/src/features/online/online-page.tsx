@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveAccount } from "@/lib/active-account";
 import { cn } from "@/lib/utils";
+import { GENDER_LABEL } from "@/lib/lit-format";
 import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog";
 import type { OnlineUser } from "./online-view";
 import { useOnlineUsers } from "./use-online-users";
@@ -123,8 +124,6 @@ function LookupById({ onOpen }: { onOpen: (u: UserRef) => void }) {
     </form>
   );
 }
-
-const GENDER_LABEL = { female: "Nữ", male: "Nam" } as const;
 
 function UserCard({ user, onOpen }: { user: OnlineUser; onOpen: (u: UserRef) => void }) {
   const meta = [user.gender && GENDER_LABEL[user.gender], user.age !== null && `${user.age} tuổi`].filter(Boolean);

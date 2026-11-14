@@ -77,7 +77,7 @@ function ProfileBody({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto grid max-w-2xl gap-4 p-5">
         <WalletCard wallet={wallet} />
-        <ProfileDetails data={me.data} fallbackName={account.label} updatedAt={me.dataUpdatedAt} />
+        <ProfileDetails profile={me.data} fallbackName={account.label} updatedAt={me.dataUpdatedAt} />
       </div>
     </div>
   );

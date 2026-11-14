@@ -13,6 +13,8 @@ use serde::Serialize;
 use sha2::Sha256;
 use url::Url;
 
+use crate::lit_types::{OnlineUsersPage, UserProfile, Wallet, parse_data};
+
 const LITSIGN_SALT: &str = "R@s9!bu8";
 const STS_HMAC_KEY: &[u8] = b"I am your father";
 const SHADOW_KEY_3: &[u8; 32] = b"f1c9208ccd8ef6d85c44b451da593cd4";
@@ -49,6 +51,8 @@ pub enum LitError {
     NotJson(u16),
     #[error("Server từ chối (HTTP {status}, result {result}){}", message.as_deref().map(|m| format!(": {m}")).unwrap_or_default())]
     Rejected { status: u16, result: String, message: Option<String> },
+    #[error("Response không đúng định dạng mong đợi: {0}")]
+    Schema(String),
 }
 
 impl Serialize for LitError {
@@ -333,9 +337,20 @@ async fn get_for_account(
     Ok(send_get(request).await?)
 }
 
+/// [`get_for_account`] with the response `data` parsed as `T` (see lit_types.rs).
+async fn get_typed<T: serde::de::DeserializeOwned>(
+    app: &tauri::AppHandle,
+    account_id: uuid::Uuid,
+    build: impl FnOnce(&LitProfile, SignOptions) -> Result<SignedRequest, LitError>,
+) -> Result<T, CommandError> {
+    let json = get_for_account(app, account_id, build).await?;
+    Ok(parse_data(json)?)
+}
+
+/// Wallet balances (`account/account_info`).
 #[tauri::command]
-pub async fn lit_account_info(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<serde_json::Value, CommandError> {
-    get_for_account(&app, account_id, |p, o| build_get("account/account_info", p, &[], o)).await
+pub async fn lit_account_info(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<Wallet, CommandError> {
+    get_typed(&app, account_id, |p, o| build_get("account/account_info", p, &[], o)).await
 }
 
 pub const ONLINE_PAGE_MAX: u32 = 50;
@@ -355,9 +370,9 @@ pub async fn lit_online_users(
     account_id: uuid::Uuid,
     start_pos: u32,
     num: u32,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<OnlineUsersPage, CommandError> {
     let query = online_users_query(start_pos, num)?;
-    get_for_account(&app, account_id, |p, o| build_get("home/online_users", p, &query, o)).await
+    get_typed(&app, account_id, |p, o| build_get("home/online_users", p, &query, o)).await
 }
 
 /// `user/get_info/:id` for another user, as seen from one stored account.
@@ -366,8 +381,8 @@ pub async fn lit_user_info(
     app: tauri::AppHandle,
     account_id: uuid::Uuid,
     target_id: String,
-) -> Result<serde_json::Value, CommandError> {
-    get_for_account(&app, account_id, |p, o| build_user_info(p, &target_id, o)).await
+) -> Result<UserProfile, CommandError> {
+    get_typed(&app, account_id, |p, o| build_user_info(p, &target_id, o)).await
 }
 
 /// Query for `user/get_info/me`, same as scripts/src/cli/user-me.ts.
@@ -375,25 +390,12 @@ fn user_info_me_query() -> [(&'static str, String); 2] {
     [("from", "me".to_owned()), ("source", "me".to_owned())]
 }
 
-/// Fields of `user/get_info/me` that must never reach the webview: the session
-/// token and the IM login credentials.
-const ME_SECRET_FIELDS: [&str; 2] = ["session", "huanxin"];
-
-fn redact_me(mut json: serde_json::Value) -> serde_json::Value {
-    if let Some(data) = json.get_mut("data").and_then(|d| d.as_object_mut()) {
-        for key in ME_SECRET_FIELDS {
-            data.remove(key);
-        }
-    }
-    json
-}
-
-/// The account's own profile, with secrets removed before it leaves the backend.
+/// The account's own profile. `UserProfile` has no field for the session token or
+/// the IM credentials, so they cannot leave the backend (see lit_types.rs).
 #[tauri::command]
-pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<serde_json::Value, CommandError> {
+pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<UserProfile, CommandError> {
     let query = user_info_me_query();
-    let json = get_for_account(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await?;
-    Ok(redact_me(json))
+    get_typed(&app, account_id, |p, o| build_get("user/get_info/me", p, &query, o)).await
 }
 
 #[cfg(test)]
@@ -512,21 +514,6 @@ mod tests {
         assert_eq!(req.url.path(), "/api/sns/v1/lit/user/get_info/me");
         assert!(req.url.query().unwrap().starts_with("from=me&source=me&app_source=litmatch&"));
         assert!(req.headers.iter().any(|(k, v)| *k == "lit-user-id" && v == "u10"));
-    }
-
-    #[test]
-    fn redact_me_removes_session_and_im_credentials() {
-        let json = serde_json::json!({
-            "success": true, "result": 0,
-            "data": { "nickname": "A", "session": "s", "huanxin": { "password": "p" }, "huanxin_id": "love1" }
-        });
-        let out = redact_me(json);
-        assert_eq!(out["data"]["nickname"], "A");
-        assert_eq!(out["data"]["huanxin_id"], "love1");
-        assert!(out["data"].get("session").is_none());
-        assert!(out["data"].get("huanxin").is_none());
-        // Non-object data is left alone.
-        assert_eq!(redact_me(serde_json::json!({ "data": [1] }))["data"][0], 1);
     }
 
     #[test]

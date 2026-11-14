@@ -1,29 +1,56 @@
-// Pull display fields out of an `account/account_info` or `user/get_info`
-// response without assuming an exact schema: the payload is usually under `data`.
+// Display fields for a typed profile (own profile or another user's).
 
-import { AVATAR_KEYS, ID_KEYS, isObject, NAME_KEYS, pickString, safeImageUrl, type Json } from "@/lib/lit-json";
+import { GENDER_LABEL, genderOf, locationOf, moodOf, safeImageUrl, tagNames } from "@/lib/lit-format";
+import type { UserProfile } from "@/lib/lit-types";
 
-export type Scalar = string | number | boolean;
+export interface ProfileRow {
+  label: string;
+  value: string;
+}
 
 export interface ProfileView {
   name: string | null;
   avatarUrl: string | null;
   id: string | null;
-  /** Top-level scalar fields of the profile object, in server order. */
-  fields: [string, Scalar][];
-  root: Json;
+  /** Fields the server sent, in a fixed order; absent ones are left out. */
+  rows: ProfileRow[];
 }
 
-export function toProfileView(response: Json): ProfileView {
-  const root = isObject(response.data) ? response.data : response;
-  const fields = Object.entries(root).filter(
-    (e): e is [string, Scalar] => ["string", "number", "boolean"].includes(typeof e[1]),
-  );
+const numberFmt = new Intl.NumberFormat("vi-VN");
+export const formatDate = (unixSeconds: number) => new Date(unixSeconds * 1000).toLocaleDateString("vi-VN");
+
+function vipText(p: UserProfile): string | null {
+  if (p.isVip === null) return null;
+  if (!p.isVip) return "Không";
+  return p.vipInfo?.level ? `Có, cấp ${p.vipInfo.level}` : "Có";
+}
+
+export function toProfileView(p: UserProfile): ProfileView {
+  const gender = genderOf(p.gender);
+  const tags = tagNames(p);
+  const rows: [string, string | number | null][] = [
+    ["Lit ID", p.litId === null ? null : String(p.litId)], // an id: no thousands separators
+    ["Giới tính", gender && GENDER_LABEL[gender]],
+    ["Tuổi", p.age],
+    ["Ngày sinh", p.birthdate],
+    ["Giới thiệu", p.bio],
+    ["Vị trí", locationOf(p)],
+    ["Ngôn ngữ / vùng", p.region],
+    ["Sở thích", tags.length ? tags.join(", ") : null],
+    ["Tâm trạng", moodOf(p)],
+    ["Người theo dõi", p.follower],
+    ["Đang theo dõi", p.following],
+    ["VIP", vipText(p)],
+    ["Hoạt động", p.activeInfo?.timeDesc ?? null],
+    ["Ngày tạo", p.createTime ? formatDate(p.createTime) : null],
+    ["IM ID", p.huanxinId],
+  ];
   return {
-    name: pickString(root, NAME_KEYS),
-    avatarUrl: safeImageUrl(pickString(root, AVATAR_KEYS)),
-    id: pickString(root, ID_KEYS),
-    fields: response === root ? fields.filter(([k]) => k !== "success" && k !== "result") : fields,
-    root,
+    name: p.nickname,
+    avatarUrl: safeImageUrl(p.avatar),
+    id: p.userId,
+    rows: rows.flatMap(([label, v]) =>
+      v === null ? [] : [{ label, value: typeof v === "number" ? numberFmt.format(v) : v }],
+    ),
   };
 }

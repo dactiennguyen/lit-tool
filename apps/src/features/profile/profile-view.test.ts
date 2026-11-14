@@ -1,36 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { toProfileView } from "./profile-view";
+import profile from "@/lib/contract/user-profile.json";
+import { makeProfile } from "@/lib/lit-types.test-utils";
+import { formatDate, toProfileView } from "./profile-view";
 
 describe("toProfileView", () => {
-  it("reads the profile from `data`", () => {
-    const view = toProfileView({
-      success: true,
-      result: 0,
-      data: { nickname: " Lan ", avatar: "https://cdn.example.com/a.jpg", user_id: "u1", age: 20, tags: ["x"] },
-    });
+  it("shows the backend's typed own profile in a fixed order", () => {
+    const view = toProfileView(profile);
+    expect(view.name).toBe("test_user");
+    expect(view.id).toBe("000000000000000000000001");
+    // The avatar is a CDN file id, not a URL, so it is not rendered as an image.
+    expect(view.avatarUrl).toBeNull();
+    expect(view.rows).toEqual([
+      { label: "Lit ID", value: "1000000001" },
+      { label: "Giới tính", value: "Nam" },
+      { label: "Tuổi", value: "25" },
+      { label: "Ngày sinh", value: "2000-01-01" },
+      { label: "Giới thiệu", value: "Test bio" },
+      { label: "Vị trí", value: "Test City, VN" },
+      { label: "Ngôn ngữ / vùng", value: "vi" },
+      { label: "Sở thích", value: "Thể thao" },
+      { label: "Tâm trạng", value: "Muốn chat" },
+      { label: "Người theo dõi", value: "0" },
+      { label: "Đang theo dõi", value: "0" },
+      { label: "VIP", value: "Không" },
+      { label: "Hoạt động", value: "Hoạt động" },
+      { label: "Ngày tạo", value: formatDate(1700000000) },
+      { label: "IM ID", value: "love000000000000000001" },
+    ]);
+  });
+
+  it("leaves out fields the server did not send", () => {
+    const view = toProfileView(makeProfile({ nickname: "Lan", age: 20 }));
     expect(view.name).toBe("Lan");
-    expect(view.avatarUrl).toBe("https://cdn.example.com/a.jpg");
-    expect(view.id).toBe("u1");
-    expect(view.fields).toEqual([
-      ["nickname", " Lan "],
-      ["avatar", "https://cdn.example.com/a.jpg"],
-      ["user_id", "u1"],
-      ["age", 20],
+    expect(view.id).toBeNull();
+    expect(view.rows).toEqual([{ label: "Tuổi", value: "20" }]);
+    expect(toProfileView(makeProfile()).rows).toEqual([]);
+  });
+
+  it("describes VIP level, hides a hidden mood and formats large counts", () => {
+    const view = toProfileView(
+      makeProfile({
+        isVip: true,
+        vipInfo: { level: 3, expireTime: 0 },
+        moodStatusInfo: { moodName: "Ẩn", isShow: false },
+        follower: 12345,
+      }),
+    );
+    expect(view.rows).toEqual([
+      { label: "Người theo dõi", value: (12345).toLocaleString("vi-VN") },
+      { label: "VIP", value: "Có, cấp 3" },
     ]);
   });
 
-  it("falls back to the root object and hides envelope fields", () => {
-    const view = toProfileView({ success: true, result: 0, name: "B", id: 7 });
-    expect(view.name).toBe("B");
-    expect(view.id).toBe("7");
-    expect(view.fields).toEqual([
-      ["name", "B"],
-      ["id", 7],
-    ]);
-  });
-
-  it("never renders non-http avatar values as images", () => {
-    expect(toProfileView({ data: { avatar: "javascript:alert(1)" } }).avatarUrl).toBeNull();
-    expect(toProfileView({ data: { avatar: "avatars/123.jpg" } }).avatarUrl).toBeNull();
+  it("renders only https avatar URLs", () => {
+    expect(toProfileView(makeProfile({ avatar: "https://cdn.example.com/a.jpg" })).avatarUrl).toBe(
+      "https://cdn.example.com/a.jpg",
+    );
+    for (const avatar of ["javascript:alert(1)", "avatars/123.jpg", "http://cdn.example.com/a.jpg"]) {
+      expect(toProfileView(makeProfile({ avatar })).avatarUrl).toBeNull();
+    }
   });
 });

@@ -1,6 +1,7 @@
 mod accounts;
 mod hx;
 mod lit;
+mod lit_types;
 mod settings;
 mod store;
 

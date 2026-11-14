@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { OnlineUsersPage, UserProfile, Wallet } from "./lit-types";
 
 export interface Account {
   id: string;
@@ -95,16 +96,15 @@ export const api = {
     checkConnection: (accountId: string) => call<HxCheckResult>("hx_check_connection", { accountId }),
   },
   lit: {
-    /** `user/get_info/me` for a stored account; session and IM credentials are removed by the backend. */
-    userInfoMe: (accountId: string) => call<Record<string, unknown>>("lit_user_info_me", { accountId }),
-    /** Raw `account/account_info` JSON (wallet balances) for a stored account. */
-    accountInfo: (accountId: string) => call<Record<string, unknown>>("lit_account_info", { accountId }),
-    /** Raw `user/get_info/:id` JSON for another user. */
-    userInfo: (accountId: string, targetId: string) =>
-      call<Record<string, unknown>>("lit_user_info", { accountId, targetId }),
-    /** Raw `home/online_users` JSON, one page. */
+    /** `user/get_info/me` for a stored account. Session and IM credentials never leave the backend. */
+    userInfoMe: (accountId: string) => call<UserProfile>("lit_user_info_me", { accountId }),
+    /** `account/account_info`: wallet balances for a stored account. */
+    accountInfo: (accountId: string) => call<Wallet>("lit_account_info", { accountId }),
+    /** `user/get_info/:id` for another user. */
+    userInfo: (accountId: string, targetId: string) => call<UserProfile>("lit_user_info", { accountId, targetId }),
+    /** `home/online_users`, one page. */
     onlineUsers: (accountId: string, startPos: number, num: number) =>
-      call<Record<string, unknown>>("lit_online_users", { accountId, startPos, num }),
+      call<OnlineUsersPage>("lit_online_users", { accountId, startPos, num }),
   },
   settings: {
     get: () => call<AppSettings>("settings_get"),

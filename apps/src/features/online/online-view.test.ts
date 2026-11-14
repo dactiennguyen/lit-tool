@@ -1,76 +1,67 @@
 import { describe, expect, it } from "vitest";
+import onlinePage from "@/lib/contract/online-users-page.json";
+import { makePage, makeProfile } from "@/lib/lit-types.test-utils";
 import { nextStartPos, toOnlinePage } from "./online-view";
 
 describe("toOnlinePage", () => {
-  it("reads users from a known list key", () => {
-    const page = toOnlinePage(
+  it("maps the backend's typed page", () => {
+    const page = toOnlinePage(onlinePage, 0);
+    expect(page.users).toEqual([
       {
-        success: true,
-        result: 0,
-        data: {
-          user_infos: [
-            { user_id: "a1", nickname: "Lan", avatar: "https://cdn.x/a.jpg", age: "21", gender: "girl", bio: "hi" },
-            { user_id: "b2", nickname: "Nam", gender: "boy", avatar: "http://cdn.x/b.jpg" },
-          ],
-          has_more: true,
-        },
+        key: "000000000000000000000001",
+        id: "000000000000000000000001",
+        name: "test_user",
+        avatarUrl: null,
+        age: 25,
+        gender: "male",
+        bio: "Test bio",
+        location: "Test City, VN",
+        tags: ["Thể thao"],
+        mood: "Muốn chat",
+        online: true,
       },
-      0,
-    );
-    expect(page.users.map((u) => [u.id, u.name, u.age, u.gender, u.avatarUrl])).toEqual([
-      ["a1", "Lan", 21, "female", "https://cdn.x/a.jpg"],
-      ["b2", "Nam", null, "male", null],
     ]);
-    expect(page.users[0]?.bio).toBe("hi");
+    expect(page.nextStart).toBe(15);
     expect(page.hasMore).toBe(true);
   });
 
-  it("reads location, tags, mood and the online flag", () => {
+  it("reads gender, location, at most 3 tags, mood and the online flag", () => {
+    const tags = ["A", "B", "C", "D"].map((tagName) => ({ tagId: null, tagName }));
     const page = toOnlinePage(
-      {
-        data: {
-          user_infos: [
-            {
-              user_id: "a1",
-              nickname: "Lan",
-              ip_city: "Ha Noi",
-              country: "VN",
-              online: false,
-              tags: [{ tag_name: "A" }, { tag_name: "B" }, { tag_name: "C" }, { tag_name: "D" }, { nope: 1 }],
-              mood_status_info: { mood_name: "Muốn chat", is_show: true },
-            },
-            { user_id: "b2", mood_status_info: { mood_name: "Ẩn", is_show: false } },
-          ],
-        },
-      },
+      makePage([
+        makeProfile({
+          userId: "a1", nickname: "Lan", gender: "girl", ipCity: "Ha Noi", ipCountry: "VN", online: false,
+          tags: [...tags, { tagId: "x", tagName: null }], moodStatusInfo: { moodName: "Muốn chat", isShow: true },
+        }),
+        makeProfile({ userId: "b2", moodStatusInfo: { moodName: "Ẩn", isShow: false } }),
+      ]),
       0,
     );
-    expect(page.users[0]).toMatchObject({ location: "Ha Noi, VN", tags: ["A", "B", "C"], mood: "Muốn chat", online: false });
-    expect(page.users[1]).toMatchObject({ location: null, tags: [], mood: null, online: null });
+    expect(page.users[0]).toMatchObject({
+      gender: "female", location: "Ha Noi, VN", tags: ["A", "B", "C"], mood: "Muốn chat", online: false,
+    });
+    expect(page.users[1]).toMatchObject({ name: "(không tên)", location: null, tags: [], mood: null, online: null });
   });
 
-  it("finds an unknown list key and unwraps nested user objects", () => {
-    const page = toOnlinePage({ data: { whatever: [{ user_info: { uid: 7, name: "X" }, online: true }] } }, 30);
-    expect(page.users[0]).toMatchObject({ id: "7", name: "X", key: "7" });
-  });
-
-  it("handles data being the array itself and missing ids", () => {
-    const page = toOnlinePage({ data: [{ nickname: "No id" }] }, 15);
+  it("uses a positional key when the server sends no id", () => {
+    const page = toOnlinePage(makePage([makeProfile({ nickname: "No id" })]), 15);
     expect(page.users[0]).toMatchObject({ id: null, key: "pos-15" });
   });
 
-  it("returns no users for an unexpected shape", () => {
-    expect(toOnlinePage({ data: { count: 3 } }, 0).users).toEqual([]);
+  it("keeps a server cursor of 0 and an absent has-next as null", () => {
+    expect(toOnlinePage(makePage([], { nextStart: 0, hasNext: false }), 0)).toMatchObject({ nextStart: 0, hasMore: false });
+    expect(toOnlinePage(makePage([]), 0)).toMatchObject({ nextStart: null, hasMore: null });
   });
 });
 
 describe("nextStartPos", () => {
-  const users = (n: number) => toOnlinePage({ data: Array.from({ length: n }, (_, i) => ({ id: i })) }, 0);
+  const users = (n: number) =>
+    toOnlinePage(makePage(Array.from({ length: n }, (_, i) => makeProfile({ userId: `u${i}` }))), 0);
 
   it("advances by the page size when the page is full", () => {
     expect(nextStartPos(users(15), 0, 15)).toBe(15);
   });
-  it("stops on a short page, an empty page or has_more=false", () => {
+  it("stops on a short page, an empty page or has_next=false", () => {
     expect(nextStartPos(users(4), 15, 15)).toBeUndefined();
     expect(nextStartPos(users(0), 15, 15)).toBeUndefined();
     expect(nextStartPos({ ...users(15), hasMore: false }, 0, 15)).toBeUndefined();
