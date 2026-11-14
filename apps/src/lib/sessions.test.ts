@@ -25,7 +25,7 @@ describe("sessions", () => {
     qc = new QueryClient();
     userInfoMe.mockReset();
     checkConnection.mockReset().mockResolvedValue({ steps: [] });
-    settingsGet.mockReset().mockResolvedValue({ autoConnectTcp: false, imTemplate: null });
+    settingsGet.mockReset().mockResolvedValue({ autoConnectTcp: false, imServers: null });
   });
 
   it("recognises the server's expired-session answer", () => {
@@ -72,18 +72,14 @@ describe("sessions", () => {
     expect(getSession(account("a4"))).toMatchObject({ state: "error", expired: true });
   });
 
-  it("connects over TCP after login only when auto-connect is on and a template is saved", async () => {
+  it("connects over TCP after login only when auto-connect is on", async () => {
     userInfoMe.mockResolvedValue(makeProfile());
     await login(qc, account("a5"));
     expect(checkConnection).not.toHaveBeenCalled();
 
+    // No server list saved yet: the backend fetches it on this first connection.
     qc.removeQueries({ queryKey: ["settings"] });
-    settingsGet.mockResolvedValue({ autoConnectTcp: true, imTemplate: null });
-    await login(qc, account("a5"));
-    expect(checkConnection).not.toHaveBeenCalled();
-
-    qc.removeQueries({ queryKey: ["settings"] });
-    settingsGet.mockResolvedValue({ autoConnectTcp: true, imTemplate: { appKey: "o#a", username: "u" } });
+    settingsGet.mockResolvedValue({ autoConnectTcp: true, imServers: null });
     await login(qc, account("a5"));
     expect(checkConnection).toHaveBeenCalledWith("a5");
     expect(getTcpStatus("a5").state).toBe("ok");

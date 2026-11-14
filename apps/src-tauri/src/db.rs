@@ -22,8 +22,9 @@ use crate::settings::AppSettings;
 use crate::store::now_ms;
 
 const FILE_NAME: &str = "sky.db";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
+/// Version 1.
 const SCHEMA: &str = "
 CREATE TABLE accounts (
     id               TEXT PRIMARY KEY,
@@ -47,6 +48,15 @@ CREATE TABLE settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+";
+
+/// Version 2: each account's own Easemob client id; the shared chat server
+/// settings and saved login template of version 1 are gone (the server is
+/// found from the app key, settings.rs).
+const MIGRATE_V2: &str = "
+ALTER TABLE accounts ADD COLUMN im_client TEXT;
+DELETE FROM settings WHERE key IN ('imHost', 'imPort', 'imRestBase');
+INSERT OR REPLACE INTO secrets (key, value) VALUES ('global.im_template', NULL);
 ";
 
 #[derive(Debug, thiserror::Error)]
@@ -127,15 +137,21 @@ impl Db {
         Ok(found)
     }
 
-    /// Creates the schema and imports the JSON files of earlier versions, once.
+    /// Creates or upgrades the schema, and imports the JSON files of earlier versions once.
     fn migrate(&self, dir: &Path) -> Result<()> {
         let version: i64 = self.read(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))?;
         if version >= SCHEMA_VERSION {
             return Ok(());
         }
         let imported = self.write(|tx| -> Result<Vec<PathBuf>> {
-            tx.execute_batch(SCHEMA)?;
-            let imported = import_json_files(tx, dir)?;
+            if version < 1 {
+                tx.execute_batch(SCHEMA)?;
+            }
+            if version < 2 {
+                tx.execute_batch(MIGRATE_V2)?;
+            }
+            // Into the current schema: the JSON files predate the database.
+            let imported = if version < 1 { import_json_files(tx, dir)? } else { Vec::new() };
             tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             Ok(imported)
         })?;
@@ -191,7 +207,8 @@ pub fn put_secret(c: &Connection, key: &str, value: Option<&str>) -> rusqlite::R
 
 // ---------- accounts ----------
 
-const ACCOUNT_COLUMNS: &str = "id, label, user_id, device_uuid, version, siua, dfpid, created_at, session_saved_at, im_username, im_saved_at";
+const ACCOUNT_COLUMNS: &str =
+    "id, label, user_id, device_uuid, version, siua, dfpid, created_at, session_saved_at, im_username, im_saved_at, im_client";
 
 fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
     let id: String = r.get(0)?;
@@ -201,6 +218,8 @@ fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         (Some(username), Some(saved_at)) => Some(crate::accounts::ImIdentity { username, saved_at: saved_at as u64 }),
         _ => None,
     };
+    // An unreadable client id is made again on the next connect.
+    let im_client = r.get::<_, Option<String>>(11)?.and_then(|v| uuid::Uuid::parse_str(&v).ok());
     Ok(Account {
         id,
         label: r.get(1)?,
@@ -212,6 +231,7 @@ fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         created_at: r.get::<_, i64>(7)? as u64,
         session_saved_at: r.get::<_, Option<i64>>(8)?.map(|v| v as u64),
         im,
+        im_client,
     })
 }
 
@@ -226,7 +246,7 @@ pub fn insert_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
     c.execute(
         &format!(
             "INSERT INTO accounts (position, {ACCOUNT_COLUMNS})
-             VALUES ((SELECT COALESCE(MAX(position), -1) + 1 FROM accounts), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+             VALUES ((SELECT COALESCE(MAX(position), -1) + 1 FROM accounts), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
         ),
         account_params(a),
     )
@@ -237,7 +257,7 @@ pub fn insert_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
 pub fn update_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
     let changed = c.execute(
         "UPDATE accounts SET label = ?2, user_id = ?3, device_uuid = ?4, version = ?5, siua = ?6, dfpid = ?7,
-         created_at = ?8, session_saved_at = ?9, im_username = ?10, im_saved_at = ?11 WHERE id = ?1",
+         created_at = ?8, session_saved_at = ?9, im_username = ?10, im_saved_at = ?11, im_client = ?12 WHERE id = ?1",
         account_params(a),
     )?;
     if changed == 1 { Ok(()) } else { Err(rusqlite::Error::QueryReturnedNoRows) }
@@ -260,6 +280,7 @@ fn account_params(a: &Account) -> impl rusqlite::Params + '_ {
         a.session_saved_at.map(|v| v as i64),
         a.im.as_ref().map(|im| im.username.as_str()),
         a.im.as_ref().map(|im| im.saved_at as i64),
+        a.im_client.map(|c| c.to_string()),
     )
 }
 
@@ -381,6 +402,34 @@ mod tests {
         // A JSON file appearing later is not imported again.
         fs::write(dir.path().join("accounts.json"), "[]").unwrap();
         assert_eq!(Db::open(dir.path(), None).unwrap().read(load_accounts).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_version_1_database_is_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let c = Connection::open(dir.path().join(FILE_NAME)).unwrap();
+            c.execute_batch(SCHEMA).unwrap();
+            c.execute_batch(
+                "INSERT INTO accounts (id, position, label, device_uuid, version, created_at)
+                   VALUES ('7f1f7c56-1b1e-4c55-9d37-0a4f1c2e9b10', 0, 'A', 'd1', '1', 5);
+                 INSERT INTO settings VALUES ('imHost', '\"10.0.0.1\"'), ('autoConnectTcp', 'true');
+                 INSERT INTO secrets VALUES ('global.im_template', 'T');
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let db = Db::open(dir.path(), None).unwrap();
+        let mut a = db.read(load_accounts).unwrap().remove(0);
+        assert_eq!((a.label.as_str(), a.im_client), ("A", None));
+        assert!(db.read(load_settings).unwrap().auto_connect_tcp);
+        let old: i64 = db.read(|c| c.query_row("SELECT COUNT(*) FROM settings WHERE key = 'imHost'", [], |r| r.get(0))).unwrap();
+        assert_eq!(old, 0);
+        assert_eq!(db.secret("global.im_template").unwrap(), None);
+
+        a.im_client = Some(uuid::Uuid::new_v4());
+        db.write(|tx| update_account(tx, &a)).unwrap();
+        assert_eq!(db.read(load_accounts).unwrap()[0].im_client, a.im_client);
     }
 
     #[test]

@@ -82,14 +82,14 @@ export async function login(qc: QueryClient, account: Account): Promise<boolean>
 }
 
 /**
- * With "Tự động kết nối TCP" on and a login template saved, connects right
+ * With "Tự động kết nối TCP" on, connects right
  * after login. Awaited, so "Đăng nhập tất cả" connects one account at a time.
  * A failure only shows in the TCP status; the login itself succeeded.
  */
 async function autoConnect(qc: QueryClient, accountId: string): Promise<void> {
   try {
     const settings = await qc.ensureQueryData(settingsQuery);
-    if (settings.autoConnectTcp && settings.imTemplate) await connectTcp(accountId);
+    if (settings.autoConnectTcp) await connectTcp(accountId);
   } catch {
     /* recorded in tcp-status by connectTcp */
   }

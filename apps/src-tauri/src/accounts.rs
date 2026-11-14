@@ -59,6 +59,10 @@ pub struct Account {
     /// (Older files have a per-account `hx` object instead; it is ignored.)
     #[serde(default)]
     pub im: Option<ImIdentity>,
+    /// This account's own Easemob client id (login frame resource), made on its
+    /// first chat connection and kept. Not sent to the webview.
+    #[serde(skip)]
+    pub im_client: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -286,6 +290,7 @@ impl AccountRegistry {
             created_at: now,
             session_saved_at: Some(now),
             im: None,
+            im_client: None,
         };
         // Account and sid together, or neither.
         self.db.write(|tx| -> Result<()> {
@@ -400,6 +405,21 @@ impl AccountRegistry {
             .im
             .ok_or_else(|| AccountError::Invalid("Chưa có thông tin chat: hãy đăng nhập account để lấy".into()))?;
         Ok((im.username, self.im_password(id)?))
+    }
+
+    /// The account's Easemob client id; made and saved on first use.
+    pub fn im_client(&self, id: Uuid) -> Result<Uuid> {
+        let mut accounts = self.accounts.lock().unwrap();
+        let index = accounts.iter().position(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        if let Some(client) = accounts[index].im_client {
+            return Ok(client);
+        }
+        let mut account = accounts[index].clone();
+        let client = Uuid::new_v4();
+        account.im_client = Some(client);
+        self.db.write(|tx| db::update_account(tx, &account))?;
+        accounts[index] = account;
+        Ok(client)
     }
 
     /// Removes the account and its secrets in one transaction.
@@ -580,6 +600,21 @@ mod tests {
         }
         fresh.remove(acc.id).unwrap();
         assert_eq!(secret(&db, &im_key(acc.id)), None);
+    }
+
+    #[test]
+    fn each_account_keeps_its_own_im_client_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, db) = registry(dir.path());
+        let (a, b) = (reg.add(input("dev-1")).unwrap(), reg.add(input("dev-2")).unwrap());
+        let client = reg.im_client(a.id).unwrap();
+        assert_eq!(reg.im_client(a.id).unwrap(), client);
+        assert_ne!(reg.im_client(b.id).unwrap(), client);
+        // Saved, and never sent to the webview.
+        assert_eq!(AccountRegistry::open(db).unwrap().im_client(a.id).unwrap(), client);
+        let json = serde_json::to_string(&reg.list()).unwrap();
+        assert!(!json.contains(&client.to_string()), "{json}");
+        assert!(reg.im_client(Uuid::new_v4()).is_err());
     }
 
     #[test]

@@ -1,23 +1,20 @@
 //! App settings, in the `settings` table of sky.db (see db.rs).
 //!
-//! The IM (chat) server is shared by every account: host, port and REST base
-//! are plain settings, while a saved login template is kept in the `secrets` table.
-//! Each account's own IM username replaces the one inside the template.
+//! The chat server is shared by every account and found from the Easemob app
+//! key alone: the first time an account connects, Easemob's server list for
+//! the key is fetched and saved, then reused (not fetched again) until the app
+//! key changes or the user asks for it again. Each account builds its own login
+//! frame (chat.rs), so no frame captured from a phone is needed.
 
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::{self, Db, DbError, put_secret};
-use crate::hx;
+use crate::db::{self, Db, DbError};
+use crate::hx::{self, ImServers};
 
 /// Same default as `LIT_BASE_URL` in scripts/src/core/constants.ts.
 pub const DEFAULT_API_BASE_URL: &str = "https://www.litatom.com";
-pub const DEFAULT_IM_HOST: &str = "128.1.26.67";
-const TEMPLATE_KEY: &str = "global.im_template";
-/// Login frame captured from the real app (token left empty), used until
-/// another template is saved. Each account's IM username replaces the one inside.
-pub const DEFAULT_IM_TEMPLATE: &str = "CAASQAoUMTEwMjE5MDIyMzIyMjgyNCNsaXQSE2xvdmUxNDc5MTE2MTA0MjYzODEaC2Vhc2Vtb2IuY29tIgZtb2JpbGVAA0rzAQgBEgU0LjUuNCgASiRkNTVmYWNiOS1kZDdhLTQzOTctOTQ5Mi01MWVkMGIzMDgzYWRQAGIOR29vZ2xlUGl4ZWwgNmFqLGFuZHJvaWRfZDU1ZmFjYjktZGQ3YS00Mzk3LTk0OTItNTFlZDBiMzA4M2Fkeg9jb20ubGl0YXRvbS5hcHCCASRhNGE0OTMxMi0zNmE5LTRmNTUtYjg4ZC0zZDQ5NmY4ZjhjZTCKAQR2My4wkgEmeyJ2aWQiOjg1NjE0MiwiY2lkIjo2MjE5NTYsInRva2VuIjoiIn2iARcyNDAzOTM2NjEyOC4xLjI2LjY3NjcxN1gA";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
@@ -45,60 +42,59 @@ fn invalid(e: impl std::fmt::Display) -> SettingsError {
     SettingsError::Invalid(e.to_string())
 }
 
-/// The stored settings. Missing fields take their defaults.
+/// The server list saved for an app key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedServers {
+    /// The app key the list was fetched for; another key needs a new list.
+    pub app_key: String,
+    #[serde(flatten)]
+    pub servers: ImServers,
+    /// When the list was fetched (ms since the epoch).
+    pub fetched_at: u64,
+}
+
+/// The stored settings, also as sent to the webview. Missing fields take their defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub api_base_url: String,
-    pub im_host: String,
-    pub im_port: u16,
-    pub im_rest_base: String,
+    /// Easemob app key (org#app) of the chat server.
+    pub im_app_key: String,
     /// Connect to the chat server right after an account logs in.
     pub auto_connect_tcp: bool,
+    /// Server list saved on first use; not part of a patch.
+    pub im_servers: Option<SavedServers>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             api_base_url: DEFAULT_API_BASE_URL.to_owned(),
-            im_host: DEFAULT_IM_HOST.to_owned(),
-            im_port: hx::DEFAULT_IM_PORT,
-            im_rest_base: hx::DEFAULT_REST_BASE.to_owned(),
+            im_app_key: hx::DEFAULT_APP_KEY.to_owned(),
             auto_connect_tcp: false,
+            im_servers: None,
         }
     }
 }
 
-/// Shown about the saved template; the template itself never leaves the backend.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TemplateInfo {
-    pub app_key: String,
-    /// The account the template was captured from (replaced per account at login).
-    pub username: String,
-    /// True while no template of the user's own is saved (the built-in one is used).
-    pub is_default: bool,
-}
-
-/// Settings as sent to the webview.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingsView {
-    #[serde(flatten)]
-    pub settings: AppSettings,
-    pub im_template: Option<TemplateInfo>,
+impl AppSettings {
+    /// The saved server list, when it belongs to the current app key (and,
+    /// read back from the database, still has an endpoint).
+    pub fn servers(&self) -> Option<&ImServers> {
+        self.im_servers
+            .as_ref()
+            .filter(|s| s.app_key == self.im_app_key && !s.servers.endpoints.is_empty())
+            .map(|s| &s.servers)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub api_base_url: Option<String>,
-    pub im_host: Option<String>,
-    pub im_port: Option<u16>,
-    pub im_rest_base: Option<String>,
+    pub im_app_key: Option<String>,
     pub auto_connect_tcp: Option<bool>,
-    /// Blank keeps the saved template.
-    pub im_template_b64: Option<String>,
 }
 
 /// Accept only an http(s) origin; normalise to `scheme://host[:port]`
@@ -118,129 +114,123 @@ pub fn normalize_base_url(raw: &str) -> Result<String> {
 pub struct SettingsStore {
     db: Arc<Db>,
     current: Mutex<AppSettings>,
-    /// The saved template read (or written) this run; `None` = not read yet.
-    template: Mutex<Option<Option<String>>>,
+    /// Held while the server list is fetched, so parallel connects fetch it once.
+    discovering: tokio::sync::Mutex<()>,
 }
 
 impl SettingsStore {
     pub fn open(db: Arc<Db>) -> Result<Self> {
         let current = db.read(db::load_settings)?;
-        Ok(Self { db, current: Mutex::new(current), template: Mutex::new(None) })
+        Ok(Self { db, current: Mutex::new(current), discovering: tokio::sync::Mutex::new(()) })
     }
 
     pub fn get(&self) -> AppSettings {
         self.current.lock().unwrap().clone()
     }
 
-    /// The saved template, if any. Reads the secret store.
-    fn saved_template(&self) -> Result<Option<String>> {
-        let mut cached = self.template.lock().unwrap();
-        if let Some(t) = cached.as_ref() {
-            return Ok(t.clone());
-        }
-        let t = self.db.secret(TEMPLATE_KEY)?;
-        *cached = Some(t.clone());
-        Ok(t)
-    }
-
-    /// The shared login template (base64), for the backend only: the saved one,
-    /// or the built-in default. Reads the secret store.
-    pub fn im_template(&self) -> Result<String> {
-        Ok(self.saved_template()?.unwrap_or_else(|| DEFAULT_IM_TEMPLATE.to_owned()))
-    }
-
-    pub fn view(&self) -> Result<SettingsView> {
-        let saved = self.saved_template()?;
-        let is_default = saved.is_none();
-        // An unreadable saved template shows as missing, so it can be replaced.
-        let im_template = hx::parse_template(saved.as_deref().unwrap_or(DEFAULT_IM_TEMPLATE))
-            .ok()
-            .map(|t| TemplateInfo { app_key: t.app_key, username: t.username, is_default });
-        Ok(SettingsView { settings: self.get(), im_template })
-    }
-
-    pub fn update(&self, patch: SettingsPatch) -> Result<SettingsView> {
+    pub fn update(&self, patch: SettingsPatch) -> Result<AppSettings> {
         // Held for the whole update, so two saves cannot overwrite each other.
         let mut current = self.current.lock().unwrap();
         let mut next = current.clone();
         if let Some(url) = patch.api_base_url {
             next.api_base_url = normalize_base_url(&url)?;
         }
-        if let Some(host) = patch.im_host {
-            next.im_host = hx::validate_host(&host).map_err(invalid)?;
-        }
-        if let Some(port) = patch.im_port {
-            if port == 0 {
-                return Err(SettingsError::Invalid("Port không hợp lệ".into()));
-            }
-            next.im_port = port;
-        }
-        if let Some(rest) = patch.im_rest_base {
-            next.im_rest_base = hx::easemob_origin(&rest).map_err(invalid)?;
+        if let Some(key) = patch.im_app_key {
+            next.im_app_key = hx::validate_app_key(&key).map_err(invalid)?;
         }
         if let Some(auto) = patch.auto_connect_tcp {
             next.auto_connect_tcp = auto;
         }
-        let template = patch.im_template_b64.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
-        if let Some(t) = &template {
-            hx::parse_template(t).map_err(invalid)?;
-        }
-
-        // Settings and template together, or neither.
-        self.db.write(|tx| -> Result<()> {
-            db::save_settings(tx, &next)?;
-            if let Some(t) = &template {
-                put_secret(tx, TEMPLATE_KEY, Some(t))?;
-            }
-            Ok(())
-        })?;
-        if let Some(t) = template {
-            *self.template.lock().unwrap() = Some(Some(t));
-        }
-        *current = next;
-        drop(current);
-        self.view()
+        self.db.write(|tx| db::save_settings(tx, &next))?;
+        *current = next.clone();
+        Ok(next)
     }
 
-    /// Back to the built-in default template.
-    pub fn clear_im_template(&self) -> Result<SettingsView> {
-        self.db.write(|tx| put_secret(tx, TEMPLATE_KEY, None))?;
-        *self.template.lock().unwrap() = Some(None);
-        self.view()
+    /// Saves a fetched list for `app_key`, unless the key changed meanwhile.
+    fn save_servers(&self, app_key: &str, servers: ImServers) -> Result<AppSettings> {
+        let mut current = self.current.lock().unwrap();
+        let mut next = current.clone();
+        if next.im_app_key == app_key {
+            next.im_servers = Some(SavedServers { app_key: app_key.to_owned(), servers, fetched_at: crate::store::now_ms() });
+            self.db.write(|tx| db::save_settings(tx, &next))?;
+            *current = next.clone();
+        }
+        Ok(next)
+    }
+
+    /// App key and server list for connecting: the saved list, or fetched and
+    /// saved once when there is none for the current key.
+    pub async fn chat_server(&self) -> std::result::Result<(String, ImServers), ServerError> {
+        if let Some(found) = self.saved() {
+            return Ok(found);
+        }
+        let _one_at_a_time = self.discovering.lock().await;
+        // Another caller may have fetched it while this one waited.
+        if let Some(found) = self.saved() {
+            return Ok(found);
+        }
+        let app_key = self.get().im_app_key;
+        let servers = hx::discover(&app_key).await?;
+        self.save_servers(&app_key, servers.clone())?;
+        Ok((app_key, servers))
+    }
+
+    /// Fetches the list again now (Cài đặt), replacing the saved one.
+    pub async fn refresh_servers(&self) -> std::result::Result<AppSettings, ServerError> {
+        let _one_at_a_time = self.discovering.lock().await;
+        let app_key = self.get().im_app_key;
+        let servers = hx::discover(&app_key).await?;
+        Ok(self.save_servers(&app_key, servers)?)
+    }
+
+    fn saved(&self) -> Option<(String, ImServers)> {
+        let s = self.current.lock().unwrap();
+        s.servers().map(|servers| (s.im_app_key.clone(), servers.clone()))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ServerError {
+    #[error(transparent)]
+    Hx(#[from] hx::HxError),
+    #[error(transparent)]
+    Settings(#[from] SettingsError),
+}
+
+impl Serialize for ServerError {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
     }
 }
 
 #[tauri::command(async)]
-pub fn settings_get(store: tauri::State<'_, SettingsStore>) -> Result<SettingsView> {
-    store.view()
+pub fn settings_get(store: tauri::State<'_, SettingsStore>) -> AppSettings {
+    store.get()
 }
 
 #[tauri::command(async)]
-pub fn settings_update(store: tauri::State<'_, SettingsStore>, patch: SettingsPatch) -> Result<SettingsView> {
+pub fn settings_update(store: tauri::State<'_, SettingsStore>, patch: SettingsPatch) -> Result<AppSettings> {
     store.update(patch)
 }
 
-#[tauri::command(async)]
-pub fn settings_clear_im_template(store: tauri::State<'_, SettingsStore>) -> Result<SettingsView> {
-    store.clear_im_template()
+/// Fetches Easemob's server list for the app key again and saves it.
+#[tauri::command]
+pub async fn settings_refresh_im_servers(
+    store: tauri::State<'_, SettingsStore>,
+) -> std::result::Result<AppSettings, ServerError> {
+    store.refresh_servers().await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TEMPLATE: &str = "EiIKCW9yZzEjYXBwMRIIbG92ZV8xMDAaC2Vhc2Vtb2IuY29tQANKMwgFkgEieyJ0b2tlbiI6IiIsInZpZCI6InYxIiwiY2lkIjoiYzEifaAB////////////AWAH";
-
     fn open(dir: &std::path::Path) -> SettingsStore {
         SettingsStore::open(Arc::new(Db::open(dir, None).unwrap())).unwrap()
     }
 
-    #[test]
-    fn default_template_is_valid() {
-        let t = hx::parse_template(DEFAULT_IM_TEMPLATE).unwrap();
-        assert_eq!((t.app_key.as_str(), t.username.as_str()), ("1102190223222824#lit", "love147911610426381"));
-        let other = hx::with_username(&t, "love_200").unwrap();
-        hx::build_login_frame(&other, "tok").unwrap();
+    fn servers(host: &str) -> ImServers {
+        ImServers { endpoints: vec![hx::ImEndpoint { host: host.into(), port: 80 }], rest_base: None, cluster: None }
     }
 
     #[test]
@@ -262,51 +252,50 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(dir.path());
         let s = store.get();
-        assert_eq!((s.api_base_url.as_str(), s.im_host.as_str(), s.im_port), (DEFAULT_API_BASE_URL, DEFAULT_IM_HOST, 6717));
+        assert_eq!((s.api_base_url.as_str(), s.im_app_key.as_str()), (DEFAULT_API_BASE_URL, hx::DEFAULT_APP_KEY));
+        assert!(!s.auto_connect_tcp && s.im_servers.is_none());
 
-        let patch = SettingsPatch { api_base_url: Some("http://localhost:3000/".into()), im_host: Some(" 10.0.0.1 ".into()), ..Default::default() };
+        let patch = SettingsPatch { api_base_url: Some("http://localhost:3000/".into()), im_app_key: Some(" org#app ".into()), ..Default::default() };
         store.update(patch).unwrap();
         assert!(store.update(SettingsPatch { api_base_url: Some("nope".into()), ..Default::default() }).is_err());
-        assert!(store.update(SettingsPatch { im_port: Some(0), ..Default::default() }).is_err());
-        assert!(store.update(SettingsPatch { im_rest_base: Some("https://evil.com".into()), ..Default::default() }).is_err());
-
-        assert!(!store.get().auto_connect_tcp);
+        assert!(store.update(SettingsPatch { im_app_key: Some("no-hash".into()), ..Default::default() }).is_err());
         store.update(SettingsPatch { auto_connect_tcp: Some(true), ..Default::default() }).unwrap();
 
-        let reopened = open(dir.path());
-        assert_eq!((reopened.get().api_base_url.as_str(), reopened.get().im_host.as_str()), ("http://localhost:3000", "10.0.0.1"));
-        assert!(reopened.get().auto_connect_tcp);
+        let reopened = open(dir.path()).get();
+        assert_eq!((reopened.api_base_url.as_str(), reopened.im_app_key.as_str()), ("http://localhost:3000", "org#app"));
+        assert!(reopened.auto_connect_tcp);
     }
 
     #[test]
-    fn template_lives_in_the_secret_store_and_only_its_identity_is_shown() {
+    fn the_server_list_is_kept_per_app_key() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(dir.path());
-        // Built-in default until one is saved.
-        let default = store.view().unwrap().im_template.unwrap();
-        assert!(default.is_default);
-        assert_eq!(default.app_key, "1102190223222824#lit");
-        assert_eq!(store.im_template().unwrap(), DEFAULT_IM_TEMPLATE);
-        assert!(store.update(SettingsPatch { im_template_b64: Some("bad!".into()), ..Default::default() }).is_err());
+        store.save_servers(hx::DEFAULT_APP_KEY, servers("192.0.2.1")).unwrap();
+        assert_eq!(store.saved().unwrap().1.endpoint().host, "192.0.2.1");
+        // Saved across restarts, so it is not fetched again.
+        let reopened = open(dir.path());
+        assert_eq!(reopened.saved().unwrap(), (hx::DEFAULT_APP_KEY.to_owned(), servers("192.0.2.1")));
 
-        let view = store.update(SettingsPatch { im_template_b64: Some(format!(" {TEMPLATE} ")), ..Default::default() }).unwrap();
-        assert_eq!(view.im_template, Some(TemplateInfo { app_key: "org1#app1".into(), username: "love_100".into(), is_default: false }));
-        assert_eq!(store.im_template().unwrap(), TEMPLATE);
-        let json = serde_json::to_string(&view).unwrap();
-        assert!(!json.contains(TEMPLATE), "{json}");
+        // Another app key does not use it; a list fetched for an old key is not saved.
+        reopened.update(SettingsPatch { im_app_key: Some("org#other".into()), ..Default::default() }).unwrap();
+        assert!(reopened.saved().is_none());
+        reopened.save_servers(hx::DEFAULT_APP_KEY, servers("192.0.2.9")).unwrap();
+        assert!(reopened.saved().is_none());
+        assert_eq!(reopened.get().im_servers.unwrap().servers, servers("192.0.2.1"));
 
-        // Blank keeps it; clearing goes back to the default.
-        store.update(SettingsPatch { im_template_b64: Some(" ".into()), ..Default::default() }).unwrap();
-        assert_eq!(store.im_template().unwrap(), TEMPLATE);
-        assert!(store.clear_im_template().unwrap().im_template.unwrap().is_default);
-        assert_eq!(store.im_template().unwrap(), DEFAULT_IM_TEMPLATE);
+        // A list without endpoints (edited or damaged) counts as none, so it is fetched again.
+        let empty = ImServers { endpoints: vec![], rest_base: None, cluster: None };
+        reopened.update(SettingsPatch { im_app_key: Some(hx::DEFAULT_APP_KEY.into()), ..Default::default() }).unwrap();
+        reopened.save_servers(hx::DEFAULT_APP_KEY, empty).unwrap();
+        assert!(reopened.saved().is_none());
     }
 
     #[test]
     fn partial_settings_fall_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("settings.json"), br#"{"apiBaseUrl":"https://x.com"}"#).unwrap();
+        // Settings of earlier versions (imHost, imPort, …) are ignored.
+        std::fs::write(dir.path().join("settings.json"), br#"{"apiBaseUrl":"https://x.com","imHost":"10.0.0.1","imPort":6717}"#).unwrap();
         let s = open(dir.path()).get();
-        assert_eq!((s.api_base_url.as_str(), s.im_host.as_str()), ("https://x.com", DEFAULT_IM_HOST));
+        assert_eq!((s.api_base_url.as_str(), s.im_app_key.as_str()), ("https://x.com", hx::DEFAULT_APP_KEY));
     }
 }

@@ -10,8 +10,13 @@ use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub const DEFAULT_IM_PORT: u16 = 6717;
-pub const DEFAULT_REST_BASE: &str = "https://a1-sgp-ga.easemob.com";
+/// The Litmatch app key on Easemob (org#app).
+pub const DEFAULT_APP_KEY: &str = "1102190223222824#lit";
+/// REST base when discovery names none.
+pub const DEFAULT_REST_BASE: &str = "https://a1-sgp-ga.easecdn.com";
+/// Easemob's public server list, by app key (scripts/src/hyphenate/bootstrap.ts).
+const DISCOVERY_URL: &str = "https://rs.easemob.com/easemob/server.json";
+#[cfg(test)]
 const MAX_TEMPLATE_B64: usize = 65_536;
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Sent after a successful login, before the session is usable.
@@ -38,6 +43,8 @@ pub enum HxError {
     SendUnknown(String),
     #[error("Đọc lịch sử thất bại: {0}")]
     History(String),
+    #[error("Không lấy được danh sách server chat: {0}")]
+    Discovery(String),
     /// HTTP 401 from the REST API: the token is no longer valid.
     #[error("Token Hyphenate hết hạn hoặc không hợp lệ")]
     Unauthorized,
@@ -181,7 +188,7 @@ fn frame(payload: &[u8]) -> Vec<u8> {
 
 // ---------- login template ----------
 
-/// Account-specific login frame captured from the real app.
+/// A login frame without its length prefix; `token` in its auth JSON is filled at login.
 #[derive(Debug, Clone)]
 pub struct LoginTemplate {
     pub payload: Vec<u8>,
@@ -189,7 +196,8 @@ pub struct LoginTemplate {
     pub username: String,
 }
 
-/// Port of `loadTemplate` (minus host/port, which are stored separately).
+/// Port of `loadTemplate` (minus host/port), for frames captured from the phone app.
+#[cfg(test)]
 pub fn parse_template(b64: &str) -> Result<LoginTemplate> {
     let b64 = b64.trim();
     if b64.is_empty() || b64.len() > MAX_TEMPLATE_B64 {
@@ -212,7 +220,55 @@ pub fn parse_template(b64: &str) -> Result<LoginTemplate> {
     Ok(LoginTemplate { payload, app_key, username })
 }
 
-/// Port of `buildLoginFrame`: only `token` inside the auth JSON changes.
+/// Port of `buildNodeLoginTemplate`: a fresh Easemob client (SDK 5.2.0, auth
+/// v6.0) for one account, identified by its own `client_uuid`. Needs no frame
+/// captured from a phone.
+pub fn build_node_template(app_key: &str, username: &str, client_uuid: &uuid::Uuid, now_ms: u64) -> Result<LoginTemplate> {
+    if !is_app_key(app_key) {
+        return Err(HxError::Invalid("App key sai định dạng (org#app)".into()));
+    }
+    if !is_id(username) {
+        return Err(HxError::Invalid("IM username không hợp lệ".into()));
+    }
+    let bytes = |number, v: &str| Field { number, value: Value::Bytes(v.as_bytes().to_vec()) };
+    let varint = |number, v| Field { number, value: Value::Varint(v) };
+    let uuid = client_uuid.hyphenated().to_string();
+    let resource = format!("node_{uuid}");
+    let os_type = if cfg!(target_os = "macos") {
+        3
+    } else if cfg!(target_os = "windows") {
+        4
+    } else if cfg!(target_os = "linux") {
+        2
+    } else {
+        16
+    };
+    let identity = write_fields(&[bytes(1, app_key), bytes(2, username), bytes(3, "easemob.com"), bytes(4, &resource)]);
+    let provision = write_fields(&[
+        varint(1, os_type),
+        bytes(2, "5.2.0"),
+        varint(5, 0),
+        varint(6, 0),
+        bytes(9, &uuid),
+        bytes(12, "Node.js"),
+        bytes(13, &resource),
+        bytes(17, "v6.0"),
+        bytes(18, r#"{"token":""}"#),
+        bytes(20, &format!("{now_ms}:")),
+    ]);
+    let payload = write_fields(&[
+        varint(1, 0),
+        Field { number: 2, value: Value::Bytes(identity) },
+        varint(8, 3),
+        Field { number: 9, value: Value::Bytes(provision) },
+        varint(10, 0),
+        varint(11, 0),
+    ]);
+    Ok(LoginTemplate { payload, app_key: app_key.to_owned(), username: username.to_owned() })
+}
+
+/// Port of `buildLoginFrame`: only `token` inside the auth JSON changes. Auth
+/// v6.0 frames take the token as `$t$<token>`.
 pub fn build_login_frame(template: &LoginTemplate, access_token: &str) -> Result<Vec<u8>> {
     if access_token.is_empty() {
         return Err(HxError::Invalid("Thiếu access token Hyphenate".into()));
@@ -221,27 +277,116 @@ pub fn build_login_frame(template: &LoginTemplate, access_token: &str) -> Result
     let mut body = read_fields(bytes_field(&outer, 9)?)?;
     let mut auth: serde_json::Map<String, serde_json::Value> =
         serde_json::from_slice(bytes_field(&body, 18)?).map_err(|_| HxError::Template("auth JSON sai".into()))?;
-    auth.insert("token".into(), access_token.into());
+    let v6 = matches!(get(&body, 17), Some(Value::Bytes(b)) if b == b"v6.0");
+    let token = if v6 { format!("$t${access_token}") } else { access_token.to_owned() };
+    auth.insert("token".into(), token.into());
     replace_bytes(&mut body, 18, serde_json::to_vec(&auth).expect("map serializes"))?;
     replace_bytes(&mut outer, 9, write_fields(&body))?;
     Ok(frame(&write_fields(&outer)))
 }
 
-/// The shared template with another account's IM username: only the `name`
-/// inside the identity JID (outer field 2) changes; every other byte is kept.
-pub fn with_username(template: &LoginTemplate, username: &str) -> Result<LoginTemplate> {
-    if !is_id(username) {
-        return Err(HxError::Invalid("IM username không hợp lệ".into()));
+// ---------- server discovery ----------
+
+/// One TCP endpoint of the IM server.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct ImEndpoint {
+    pub host: String,
+    pub port: u16,
+}
+
+/// Easemob's server list for an app key.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImServers {
+    /// TCP endpoints in server order, duplicates removed. Never empty.
+    pub endpoints: Vec<ImEndpoint>,
+    /// First https REST host on port 443, when listed.
+    pub rest_base: Option<String>,
+    pub cluster: Option<String>,
+}
+
+impl ImServers {
+    /// The endpoint used: the first one.
+    pub fn endpoint(&self) -> &ImEndpoint {
+        &self.endpoints[0]
     }
-    let mut outer = read_fields(&template.payload)?;
-    let mut identity = read_fields(bytes_field(&outer, 2)?)?;
-    replace_bytes(&mut identity, 2, username.as_bytes().to_vec())?;
-    replace_bytes(&mut outer, 2, write_fields(&identity))?;
-    Ok(LoginTemplate { payload: write_fields(&outer), app_key: template.app_key.clone(), username: username.to_owned() })
+
+    pub fn rest_base(&self) -> &str {
+        self.rest_base.as_deref().unwrap_or(DEFAULT_REST_BASE)
+    }
+}
+
+/// Port of `parseDiscovery`.
+pub fn parse_discovery(value: &serde_json::Value) -> Result<ImServers> {
+    let bad = |m: &str| HxError::Discovery(m.into());
+    let hosts = value.get("msync-im").and_then(|g| g.get("hosts")).and_then(|h| h.as_array()).ok_or_else(|| bad("không có msync-im"))?;
+    let mut endpoints: Vec<ImEndpoint> = Vec::new();
+    for entry in hosts {
+        let host = entry.get("ip").and_then(|v| v.as_str()).filter(|v| !v.is_empty()).or_else(|| entry.get("domain").and_then(|v| v.as_str()));
+        let port = match entry.get("port") {
+            Some(serde_json::Value::String(s)) => s.parse::<u16>().ok(),
+            Some(v) => v.as_u64().and_then(|n| u16::try_from(n).ok()),
+            None => None,
+        };
+        let (Some(host), Some(port)) = (host, port.filter(|&p| p > 0)) else { continue };
+        let Ok(host) = validate_host(host) else { continue };
+        let endpoint = ImEndpoint { host, port };
+        if !endpoints.contains(&endpoint) {
+            endpoints.push(endpoint);
+        }
+    }
+    if endpoints.is_empty() {
+        return Err(bad("không có server TCP hợp lệ"));
+    }
+    let rest_base = value.get("rest").and_then(|r| r.get("hosts")).and_then(|h| h.as_array()).and_then(|hosts| {
+        hosts.iter().find_map(|e| {
+            let port_443 = match e.get("port") {
+                Some(serde_json::Value::String(s)) => s == "443",
+                Some(v) => v.as_u64() == Some(443),
+                None => false,
+            };
+            (e.get("protocol")?.as_str()? == "https" && port_443)
+                .then(|| easemob_origin(&format!("https://{}", e.get("domain")?.as_str()?)).ok())
+                .flatten()
+        })
+    });
+    let cluster = value.get("cluster_name").and_then(|v| v.as_str()).map(str::to_owned);
+    Ok(ImServers { endpoints, rest_base, cluster })
+}
+
+/// Port of `discoverImServers`: one GET, no credentials.
+pub async fn discover(app_key: &str) -> Result<ImServers> {
+    if !is_app_key(app_key) {
+        return Err(HxError::Invalid("App key sai định dạng (org#app)".into()));
+    }
+    let mut url = url::Url::parse(DISCOVERY_URL).expect("valid constant");
+    url.query_pairs_mut().append_pair("app_key", app_key).append_pair("_v", &crate::store::now_ms().to_string());
+    let client = crate::lit::http_client().map_err(|e| HxError::Discovery(e.to_string()))?;
+    let net = |e: reqwest::Error| HxError::Discovery(e.without_url().to_string());
+    let mut response = client.get(url).send().await.map_err(net)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(HxError::Discovery(format!("HTTP {}", status.as_u16())));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(net)? {
+        if body.len() + chunk.len() > MAX_FRAME_BYTES {
+            return Err(HxError::Discovery("response vượt 1 MiB".into()));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| HxError::Discovery("JSON không hợp lệ".into()))?;
+    parse_discovery(&value)
 }
 
 fn is_id(v: &str) -> bool {
     !v.is_empty() && v.len() <= 128 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// An Easemob app key, `org#app`.
+pub fn validate_app_key(raw: &str) -> Result<String> {
+    let key = raw.trim();
+    if is_app_key(key) { Ok(key.to_owned()) } else { Err(HxError::Invalid("App key phải có dạng org#app".into())) }
 }
 
 fn is_app_key(v: &str) -> bool {
@@ -258,16 +403,16 @@ pub fn validate_host(host: &str) -> Result<String> {
     if ok { Ok(host.to_owned()) } else { Err(HxError::Invalid("IM host không hợp lệ".into())) }
 }
 
-/// Port of `easemobOrigin`: https, an easemob.com host, port 443, no credentials.
+/// Port of `easemobOrigin`: https, an easemob.com or easecdn.com host, port 443, no credentials.
 pub fn easemob_origin(raw: &str) -> Result<String> {
-    let invalid = || HxError::Invalid("REST base phải là https://…easemob.com".into());
+    let invalid = || HxError::Invalid("REST base phải là https://…easemob.com hoặc …easecdn.com".into());
     let url = url::Url::parse(raw.trim()).map_err(|_| invalid())?;
     let host = url.host_str().unwrap_or_default();
     if url.scheme() != "https"
         || !url.username().is_empty()
         || url.password().is_some()
         || url.port().is_some_and(|p| p != 443)
-        || !(host == "easemob.com" || host.ends_with(".easemob.com"))
+        || !["easemob.com", "easecdn.com"].iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
     {
         return Err(invalid());
     }
@@ -793,16 +938,74 @@ mod tests {
         assert_eq!(write_fields(&read_fields(&t.payload).unwrap()), t.payload);
     }
 
+    // From scripts/src/hyphenate/bootstrap.ts (buildNodeLoginTemplate, platform darwin,
+    // now 1700000000000) and template.ts (buildLoginFrame, token "tok-123").
+    const NODE_TEMPLATE_MACOS_HEX: &str = "0800124d0a096f726731236170703112086c6f76655f3130301a0b656173656d6f622e636f6d22296e6f64655f31323334353637382d313233342d343233342d383233342d31323334353637383961626340034a8e0108031205352e322e30280030004a2431323334353637382d313233342d343233342d383233342d31323334353637383961626362074e6f64652e6a736a296e6f64655f31323334353637382d313233342d343233342d383233342d3132333435363738396162638a010476362e3092010c7b22746f6b656e223a22227da2010e313730303030303030303030303a50005800";
+    const NODE_FRAME_MACOS_HEX: &str = "000000f20800124d0a096f726731236170703112086c6f76655f3130301a0b656173656d6f622e636f6d22296e6f64655f31323334353637382d313233342d343233342d383233342d31323334353637383961626340034a980108031205352e322e30280030004a2431323334353637382d313233342d343233342d383233342d31323334353637383961626362074e6f64652e6a736a296e6f64655f31323334353637382d313233342d343233342d383233342d3132333435363738396162638a010476362e309201167b22746f6b656e223a22247424746f6b2d313233227da2010e313730303030303030303030303a50005800";
+
     #[test]
-    fn shared_template_takes_each_accounts_username() {
-        let t = parse_template(TEMPLATE).unwrap();
-        let other = with_username(&t, "love_200").unwrap();
-        assert_eq!((other.app_key.as_str(), other.username.as_str()), ("org1#app1", "love_200"));
-        // Re-parses as a valid template, and swapping back gives the original bytes.
-        let reparsed = parse_template(&STANDARD.encode(&other.payload)).unwrap();
-        assert_eq!(reparsed.username, "love_200");
-        assert_eq!(with_username(&other, "love_100").unwrap().payload, t.payload);
-        assert!(with_username(&t, "bad name").is_err());
+    fn node_template_and_v6_login_frame_match_typescript() {
+        let uuid = uuid::Uuid::parse_str("12345678-1234-4234-8234-123456789abc").unwrap();
+        let t = build_node_template("org1#app1", "love_100", &uuid, 1_700_000_000_000).unwrap();
+        assert_eq!((t.app_key.as_str(), t.username.as_str()), ("org1#app1", "love_100"));
+        // Only the OS type byte (provision field 1) depends on the platform.
+        let mut expected = unhex(NODE_TEMPLATE_MACOS_HEX);
+        let mut expected_frame = unhex(NODE_FRAME_MACOS_HEX);
+        let os = if cfg!(target_os = "macos") { 3 } else if cfg!(target_os = "windows") { 4 } else if cfg!(target_os = "linux") { 2 } else { 16 };
+        let at = expected.windows(3).position(|w| w == [0x4a, 0x8e, 0x01]).unwrap() + 4;
+        expected[at] = os;
+        let at = expected_frame.windows(3).position(|w| w == [0x4a, 0x98, 0x01]).unwrap() + 4;
+        expected_frame[at] = os;
+        assert_eq!(t.payload, expected);
+        // Auth v6.0: the token goes in as "$t$<token>".
+        assert_eq!(build_login_frame(&t, "tok-123").unwrap(), expected_frame);
+
+        assert!(build_node_template("bad", "love_100", &uuid, 0).is_err());
+        assert!(build_node_template("org1#app1", "bad name", &uuid, 0).is_err());
+    }
+
+    /// Live: `cargo test live_discovery -- --ignored --nocapture` (public endpoint, no credentials).
+    #[tokio::test]
+    #[ignore]
+    async fn live_discovery() {
+        let servers = discover(DEFAULT_APP_KEY).await.unwrap();
+        println!("{servers:?}");
+        assert!(!servers.endpoints.is_empty());
+    }
+
+    #[test]
+    fn discovery_dedupes_tcp_hosts_and_picks_an_https_rest_base() {
+        let json = serde_json::json!({
+            "cluster_name": "sgp",
+            "msync-im": { "hosts": [
+                { "domain": "im.example.com", "port": "6717" },
+                { "domain": "im.example.com", "port": "6717" },
+                { "ip": "192.0.2.1", "domain": "im.example.com", "port": 443 },
+                { "domain": "invalid/host", "port": "80" },
+                { "domain": "im.example.com", "port": 65536 },
+            ] },
+            "rest": { "hosts": [
+                { "domain": "example.com", "protocol": "https", "port": "443" },
+                { "domain": "a1-sgp-ga.easecdn.com", "protocol": "http", "port": "80" },
+                { "domain": "a1-sgp-ga.easecdn.com", "protocol": "https", "port": "443" },
+            ] },
+        });
+        let servers = parse_discovery(&json).unwrap();
+        assert_eq!(
+            servers.endpoints,
+            [ImEndpoint { host: "im.example.com".into(), port: 6717 }, ImEndpoint { host: "192.0.2.1".into(), port: 443 }]
+        );
+        assert_eq!(servers.endpoint().port, 6717);
+        assert_eq!(servers.rest_base.as_deref(), Some("https://a1-sgp-ga.easecdn.com"));
+        assert_eq!(servers.cluster.as_deref(), Some("sgp"));
+        // No REST host listed: the default is used.
+        let bare = parse_discovery(&serde_json::json!({ "msync-im": { "hosts": [{ "ip": "192.0.2.1", "port": "80" }] } })).unwrap();
+        assert_eq!(bare.rest_base(), DEFAULT_REST_BASE);
+        for bad in [serde_json::json!(null), serde_json::json!({}), serde_json::json!({ "msync-im": { "hosts": [] } })] {
+            assert!(parse_discovery(&bad).is_err());
+        }
+        assert_eq!(validate_app_key(" org#app ").unwrap(), "org#app");
+        assert!(validate_app_key("orgapp").is_err());
     }
 
     #[test]
@@ -821,7 +1024,8 @@ mod tests {
         assert!(validate_host("evil.com:80").is_err());
         assert!(validate_host("").is_err());
         assert_eq!(easemob_origin("https://a1-sgp-ga.easemob.com/x").unwrap(), "https://a1-sgp-ga.easemob.com");
-        for bad in ["http://a1.easemob.com", "https://easemob.com.evil.io", "https://a1.easemob.com:8443", "https://u:p@a1.easemob.com"] {
+        assert_eq!(easemob_origin("https://a1-sgp-ga.easecdn.com").unwrap(), "https://a1-sgp-ga.easecdn.com");
+        for bad in ["http://a1.easemob.com", "https://easemob.com.evil.io", "https://xeasecdn.com", "https://a1.easemob.com:8443", "https://u:p@a1.easemob.com"] {
             assert!(easemob_origin(bad).is_err(), "{bad}");
         }
     }
@@ -971,7 +1175,7 @@ mod tests {
         HistoryTarget {
             app_key: "org1#app1",
             username: "love_100",
-            rest_base: DEFAULT_REST_BASE,
+            rest_base: "https://a1-sgp-ga.easemob.com",
             to: "love_200",
             conversation_type: 0,
         }

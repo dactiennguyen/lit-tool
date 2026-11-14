@@ -1,8 +1,9 @@
 //! Chat commands: connection check, history and sending one text message.
 //!
-//! The IM server (host, port, REST base, login template) is shared and comes
-//! from the settings; each account brings its own IM username and password,
-//! saved from its profile at login. The username replaces the one in the template.
+//! The IM server comes from the app key in the settings (its server list is
+//! fetched once and saved, settings.rs). Each account brings its own IM
+//! username and password, saved from its profile at login, and its own client
+//! id, with which a fresh login frame is built for it (`hx::build_node_template`).
 //!
 //! IM tokens obtained from the hxPwd are cached here, in memory only, so that
 //! reading history does not request a new token every time. Neither the token
@@ -41,6 +42,8 @@ pub enum CommandError {
     Lit(#[from] lit::CommandError),
     #[error(transparent)]
     Settings(#[from] crate::settings::SettingsError),
+    #[error(transparent)]
+    Server(#[from] crate::settings::ServerError),
 }
 
 impl From<LitError> for CommandError {
@@ -80,9 +83,9 @@ pub struct HxTokens {
 }
 
 /// Everything a token depends on: a change to any of them misses the cache.
-fn fingerprint(template_b64: &str, username: &str, password: &str, rest_base: &str) -> [u8; 32] {
+fn fingerprint(app_key: &str, username: &str, password: &str, rest_base: &str) -> [u8; 32] {
     let mut h = Sha256::new();
-    for part in [template_b64, username, password, rest_base] {
+    for part in [app_key, username, password, rest_base] {
         h.update(part.as_bytes());
         h.update([0]);
     }
@@ -128,7 +131,7 @@ struct Session {
     host: String,
     port: u16,
     rest_base: String,
-    /// The shared template with this account's username.
+    /// This account's own login frame (token not filled in).
     template: LoginTemplate,
     password: String,
     fingerprint: [u8; 32],
@@ -145,24 +148,25 @@ impl Session {
     async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
         let handle = app.clone();
         // Secret reads touch the disk (and, once, the old keychain): keep them off the async workers.
-        let (settings, template_b64, (username, password)) = tauri::async_runtime::spawn_blocking(move || {
-            let settings = handle.state::<SettingsStore>();
-            let template = settings.im_template()?;
-            let im = handle.state::<AccountRegistry>().im_material(account_id)?;
-            Ok::<_, CommandError>((settings.get(), template, im))
+        let ((username, password), client) = tauri::async_runtime::spawn_blocking(move || {
+            let registry = handle.state::<AccountRegistry>();
+            Ok::<_, CommandError>((registry.im_material(account_id)?, registry.im_client(account_id)?))
         })
         .await
         .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
-        let template = hx::with_username(&hx::parse_template(&template_b64)?, &username)?;
-        let fingerprint = fingerprint(&template_b64, &username, &password, &settings.im_rest_base);
+        // The saved server list; fetched (and saved) only when there is none yet.
+        let (app_key, servers) = app.state::<SettingsStore>().chat_server().await?;
+        let template = hx::build_node_template(&app_key, &username, &client, crate::store::now_ms())?;
+        let rest_base = servers.rest_base().to_owned();
+        let endpoint = servers.endpoint();
         Ok(Self {
             account_id,
-            host: settings.im_host,
-            port: settings.im_port,
-            rest_base: settings.im_rest_base,
+            host: endpoint.host.clone(),
+            port: endpoint.port,
+            fingerprint: fingerprint(&app_key, &username, &password, &rest_base),
+            rest_base,
             template,
             password,
-            fingerprint,
         })
     }
 

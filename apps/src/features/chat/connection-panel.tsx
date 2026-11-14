@@ -1,6 +1,6 @@
 import { CheckCircle2Icon, Loader2Icon, PlugZapIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Account, AppSettings } from "@/lib/api";
+import { chatServer, type Account, type AppSettings } from "@/lib/api";
 import { useCheckHxConnection } from "@/lib/queries";
 import { useTcpStatus } from "@/lib/tcp-status";
 import { TcpText } from "@/components/tcp-status";
@@ -25,7 +25,10 @@ export function ConnectionPanel({
       <div className="min-w-0 space-y-0.5">
         <p className="truncate font-mono text-xs">{username}</p>
         <p className="truncate font-mono text-[11px] text-muted-foreground">
-          {settings.imHost}:{settings.imPort}
+          {(() => {
+            const server = chatServer(settings)?.endpoints[0];
+            return server ? `${server.host}:${server.port}` : "Server: tự tìm khi kết nối lần đầu";
+          })()}
         </p>
         <TcpText status={tcp} className="text-[11px]" />
       </div>

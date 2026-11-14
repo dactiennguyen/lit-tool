@@ -39,7 +39,7 @@ pub fn run() {
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,
-            settings::settings_clear_im_template,
+            settings::settings_refresh_im_servers,
             lit::lit_account_info,
             lit::lit_online_users,
             lit::lit_user_info,

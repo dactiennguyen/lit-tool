@@ -34,7 +34,7 @@ export function useTcpStatus(accountId: string): TcpStatus {
  * opposed to e.g. an invalid message text rejected before connecting.
  */
 export function isTcpError(message: string): boolean {
-  return /^(Kết nối TCP thất bại|Hết thời gian chờ|Server chat từ chối bước|Lấy token Hyphenate thất bại|Login template)/.test(
+  return /^(Kết nối TCP thất bại|Hết thời gian chờ|Server chat từ chối bước|Lấy token Hyphenate thất bại|Login template|Không lấy được danh sách server chat)/.test(
     message,
   );
 }

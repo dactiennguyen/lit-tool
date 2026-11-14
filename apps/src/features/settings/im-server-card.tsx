@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { CheckCircle2Icon, Loader2Icon, RotateCcwIcon } from "lucide-react";
+import { Loader2Icon, RefreshCwIcon, RotateCcwIcon, ServerIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_IM_HOST, DEFAULT_IM_PORT, DEFAULT_IM_REST_BASE, type AppSettings } from "@/lib/api";
-import { useClearImTemplate, useSettings, useUpdateSettings } from "@/lib/queries";
+import { chatServer, DEFAULT_IM_APP_KEY, DEFAULT_IM_REST_BASE, type AppSettings } from "@/lib/api";
+import { useRefreshImServers, useSettings, useUpdateSettings } from "@/lib/queries";
 
-/** The IM (chat) server shared by every account. */
+const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" });
+
+/** The chat server shared by every account: only its Easemob app key is set here. */
 export function ImServerCard() {
   const { data: settings, isPending, error } = useSettings();
   return (
@@ -19,7 +20,8 @@ export function ImServerCard() {
       <CardHeader>
         <CardTitle>Server chat</CardTitle>
         <CardDescription>
-          Dùng chung cho mọi account. IM username và mật khẩu chat của từng account được lấy từ hồ sơ khi đăng nhập.
+          Dùng chung cho mọi account. Server được tìm theo app key ở lần kết nối đầu rồi lưu lại. IM username và mật
+          khẩu chat của từng account được lấy từ hồ sơ khi đăng nhập.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -30,8 +32,9 @@ export function ImServerCard() {
         ) : (
           <div className="grid gap-5">
             <AutoConnectSwitch settings={settings} />
-            {/* key: a fresh form whenever the saved values change */}
-            <ImServerForm key={`${settings.imHost}:${settings.imPort}:${settings.imRestBase}`} settings={settings} />
+            {/* key: a fresh form whenever the saved key changes */}
+            <AppKeyForm key={settings.imAppKey} settings={settings} />
+            <SavedServers settings={settings} />
           </div>
         )}
       </CardContent>
@@ -39,7 +42,7 @@ export function ImServerCard() {
   );
 }
 
-/** Saved at once, independently of the server form below. */
+/** Saved at once, independently of the form below. */
 function AutoConnectSwitch({ settings }: { settings: AppSettings }) {
   const update = useUpdateSettings();
   return (
@@ -69,143 +72,104 @@ function AutoConnectSwitch({ settings }: { settings: AppSettings }) {
   );
 }
 
-function ImServerForm({ settings }: { settings: AppSettings }) {
+const isAppKey = (v: string) => /^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$/.test(v);
+
+function AppKeyForm({ settings }: { settings: AppSettings }) {
   const update = useUpdateSettings();
-  const clear = useClearImTemplate();
-  const [host, setHost] = useState(settings.imHost);
-  const [port, setPort] = useState(String(settings.imPort));
-  const [restBase, setRestBase] = useState(settings.imRestBase);
-  const [template, setTemplate] = useState("");
+  const [appKey, setAppKey] = useState(settings.imAppKey);
+  const value = appKey.trim();
+  const valid = isAppKey(value);
+  const dirty = value !== settings.imAppKey;
 
-  const portNumber = Number(port);
-  const portValid = Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
-  const dirty =
-    host.trim() !== settings.imHost ||
-    portNumber !== settings.imPort ||
-    restBase.trim() !== settings.imRestBase ||
-    template.trim() !== "";
-  const needsTemplate = !settings.imTemplate && template.trim() === "";
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!portValid) return;
+  async function save(next: string) {
     try {
-      await update.mutateAsync({
-        imHost: host.trim(),
-        imPort: portNumber,
-        imRestBase: restBase.trim(),
-        ...(template.trim() ? { imTemplateB64: template.trim() } : {}),
-      });
-      setTemplate("");
-      toast.success("Đã lưu server chat");
+      await update.mutateAsync({ imAppKey: next });
+      setAppKey(next);
+      toast.success("Đã lưu app key");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Không lưu được server chat");
+      toast.error(err instanceof Error ? err.message : "Không lưu được app key");
     }
   }
 
-  async function removeTemplate() {
-    try {
-      await clear.mutateAsync();
-      toast.success("Đã quay về login template mặc định");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Không đổi được template");
-    }
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (valid && dirty) void save(value);
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-4">
-      <div className="grid grid-cols-[1fr_7rem] gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor="im-host">IM host</Label>
-          <Input
-            id="im-host"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder={DEFAULT_IM_HOST}
-            spellCheck={false}
-            autoComplete="off"
-            className="font-mono"
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="im-port">Port</Label>
-          <Input
-            id="im-port"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            inputMode="numeric"
-            placeholder={String(DEFAULT_IM_PORT)}
-            className="font-mono"
-            aria-invalid={!portValid}
-          />
-        </div>
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor="im-rest">REST base</Label>
+    <form onSubmit={onSubmit} noValidate className="grid gap-1.5">
+      <Label htmlFor="im-app-key">App key</Label>
+      <div className="flex gap-2">
         <Input
-          id="im-rest"
-          value={restBase}
-          onChange={(e) => setRestBase(e.target.value)}
-          placeholder={DEFAULT_IM_REST_BASE}
+          id="im-app-key"
+          value={appKey}
+          onChange={(e) => setAppKey(e.target.value)}
+          placeholder={DEFAULT_IM_APP_KEY}
           spellCheck={false}
           autoComplete="off"
-          inputMode="url"
           className="font-mono"
+          aria-invalid={!valid}
+          aria-describedby="im-app-key-help"
         />
-        <p className="text-xs text-muted-foreground">
-          Mặc định: <code className="font-mono">{DEFAULT_IM_HOST}:{DEFAULT_IM_PORT}</code>,{" "}
-          <code className="font-mono">{DEFAULT_IM_REST_BASE}</code>
-        </p>
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor="im-template">Login template (base64)</Label>
-        {settings.imTemplate && (
-          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs">
-            <CheckCircle2Icon className="size-3.5 shrink-0 text-success" aria-hidden />
-            <span className="min-w-0 flex-1 truncate">
-              {settings.imTemplate.isDefault ? "Mặc định" : "Đã lưu"} · app key{" "}
-              <code className="font-mono">{settings.imTemplate.appKey}</code> · bắt từ{" "}
-              <code className="font-mono">{settings.imTemplate.username}</code>
-            </span>
-            {!settings.imTemplate.isDefault && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => void removeTemplate()}
-                disabled={clear.isPending}
-              >
-                <RotateCcwIcon aria-hidden />
-                Dùng mặc định
-              </Button>
-            )}
-          </div>
-        )}
-        <Textarea
-          id="im-template"
-          value={template}
-          onChange={(e) => setTemplate(e.target.value)}
-          placeholder={
-            settings.imTemplate ? "Để trống để giữ template đang dùng; dán template khác để thay" : "Dán frame đăng nhập TCP bắt từ máy thật"
-          }
-          spellCheck={false}
-          autoComplete="off"
-          rows={3}
-          className="font-mono text-xs break-all"
-        />
-        <p className="text-xs text-muted-foreground">
-          Lưu trong sky.db. Khi đăng nhập chat, username trong template được thay bằng IM username của từng account.
-        </p>
-      </div>
-
-      <div className="flex justify-end">
-        <Button type="submit" disabled={!dirty || !portValid || needsTemplate || update.isPending}>
+        <Button type="submit" disabled={!dirty || !valid || update.isPending}>
           {update.isPending && <Loader2Icon className="animate-spin" aria-hidden />}
           Lưu
         </Button>
       </div>
+      <p id="im-app-key-help" className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+        Dạng <code className="font-mono">org#app</code>. Mặc định <code className="font-mono">{DEFAULT_IM_APP_KEY}</code>.
+        {settings.imAppKey !== DEFAULT_IM_APP_KEY && (
+          <Button type="button" variant="ghost" size="xs" disabled={update.isPending} onClick={() => void save(DEFAULT_IM_APP_KEY)}>
+            <RotateCcwIcon aria-hidden />
+            Dùng mặc định
+          </Button>
+        )}
+      </p>
     </form>
+  );
+}
+
+/** The server list saved for the app key, and a button to fetch it again. */
+function SavedServers({ settings }: { settings: AppSettings }) {
+  const refresh = useRefreshImServers();
+  const saved = chatServer(settings);
+  const first = saved?.endpoints[0];
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg bg-muted/50 p-3 text-xs">
+      <ServerIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        {saved && first ? (
+          <>
+            <p>
+              TCP <code className="font-mono">{first.host}:{first.port}</code> · REST{" "}
+              <code className="font-mono break-all">{saved.restBase ?? DEFAULT_IM_REST_BASE}</code>
+            </p>
+            <p className="text-muted-foreground">
+              Lấy lúc {dateFmt.format(saved.fetchedAt)}
+              {saved.cluster && ` · cụm ${saved.cluster}`}
+              {saved.endpoints.length > 1 && ` · ${saved.endpoints.length} server, dùng server đầu`}
+            </p>
+          </>
+        ) : (
+          <p className="text-muted-foreground">Chưa có danh sách server: app tự lấy ở lần kết nối chat đầu tiên.</p>
+        )}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={refresh.isPending}
+        onClick={() =>
+          refresh.mutate(undefined, {
+            onSuccess: () => toast.success("Đã lấy lại danh sách server"),
+            onError: (e) => toast.error(e.message),
+          })
+        }
+      >
+        {refresh.isPending ? <Loader2Icon className="animate-spin" aria-hidden /> : <RefreshCwIcon aria-hidden />}
+        {saved ? "Lấy lại" : "Lấy ngay"}
+      </Button>
+    </div>
   );
 }

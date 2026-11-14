@@ -68,7 +68,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
-                Account, session (sid), mật khẩu chat, login template và cài đặt chung nằm trong cơ sở dữ liệu SQLite{" "}
+                Account, session (sid), mật khẩu chat, danh sách server chat và cài đặt chung nằm trong cơ sở dữ liệu SQLite{" "}
                 <code className="font-mono text-xs text-foreground">sky.db</code> ở thư mục dữ liệu của app.
               </p>
               <p>File chỉ user của máy đọc được, nhưng không mã hoá.</p>

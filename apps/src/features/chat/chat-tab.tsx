@@ -1,5 +1,5 @@
 import { useReducer, useState } from "react";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   AlertTriangleIcon,
   InboxIcon,
@@ -7,7 +7,6 @@ import {
   MessageSquareIcon,
   PlugIcon,
   RefreshCwIcon,
-  SettingsIcon,
   UsersRoundIcon,
 } from "lucide-react";
 import { PersonAvatar } from "@/components/account-avatar";
@@ -49,8 +48,8 @@ export function ChatTab({ account }: { account: Account }) {
   const peers = usePeers();
   const { data: settings } = useSettings();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
-  // Chat needs the shared server template (Cài đặt) and the account's IM identity (from login).
-  const me = settings?.imTemplate && account.im ? account.im.username : null;
+  // Chat needs the account's IM identity (saved from its profile at login).
+  const me = account.im ? account.im.username : null;
 
   const listed = conversations.data?.find((c) => c.conversationId === to);
   // A conversation that is not listed is only "new" once the list has loaded:
@@ -75,7 +74,7 @@ export function ChatTab({ account }: { account: Account }) {
           <ConnectionPanel account={account} username={me} settings={settings} />
         ) : (
           <div className="border-b p-3">
-            <ChatSetupHint account={account} hasTemplate={!!settings.imTemplate} compact />
+            <ChatSetupHint account={account} compact />
           </div>
         )}
         <ConversationList
@@ -107,7 +106,7 @@ export function ChatTab({ account }: { account: Account }) {
           )
         ) : !settings ? null : !me ? (
           <div className="flex flex-1 items-center justify-center p-8">
-            <ChatSetupHint account={account} hasTemplate={!!settings.imTemplate} />
+            <ChatSetupHint account={account} />
           </div>
         ) : (
           <ThreadPane
@@ -127,15 +126,13 @@ export function ChatTab({ account }: { account: Account }) {
   );
 }
 
-/** What is missing before chat works: the shared template, or the account's IM identity. */
-function ChatSetupHint({ account, hasTemplate, compact }: { account: Account; hasTemplate: boolean; compact?: boolean }) {
+/** Chat is not usable yet: the account's IM identity comes from its profile at login. */
+function ChatSetupHint({ account, compact }: { account: Account; compact?: boolean }) {
   const { login } = useLogin();
   const [loading, setLoading] = useState(false);
-  const title = hasTemplate ? "Chưa có thông tin chat của account" : "Chưa có login template cho server chat";
-  const description = hasTemplate
-    ? "IM username và mật khẩu chat được lấy từ hồ sơ khi đăng nhập. Đăng nhập lại để lấy."
-    : "Server chat dùng chung cho mọi account: dán login template một lần trong Cài đặt.";
-  const action = hasTemplate ? (
+  const title = "Chưa có thông tin chat của account";
+  const description = "IM username và mật khẩu chat được lấy từ hồ sơ khi đăng nhập. Đăng nhập lại để lấy.";
+  const action = (
     <Button
       variant="outline"
       size={compact ? "sm" : "default"}
@@ -149,16 +146,6 @@ function ChatSetupHint({ account, hasTemplate, compact }: { account: Account; ha
     >
       {loading ? <Loader2Icon className="animate-spin" aria-hidden /> : <RefreshCwIcon aria-hidden />}
       Đăng nhập lại
-    </Button>
-  ) : (
-    <Button
-      variant="outline"
-      size={compact ? "sm" : "default"}
-      className={cn(compact && "w-full")}
-      render={<Link to="/settings" />}
-    >
-      <SettingsIcon aria-hidden />
-      Mở Cài đặt
     </Button>
   );
 

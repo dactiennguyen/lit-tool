@@ -14,7 +14,7 @@ import { ChatTab } from "@/features/chat/chat-tab";
 import { DiscoverTab } from "@/features/online/discover-tab";
 import { ProfileTab } from "@/features/profile/profile-tab";
 import type { Account } from "@/lib/api";
-import { litQueries, useAccounts, useCheckHxConnection, useSettings } from "@/lib/queries";
+import { litQueries, useAccounts, useCheckHxConnection } from "@/lib/queries";
 import { useLogin, useSession, type SessionState } from "@/lib/sessions";
 import { useTcpStatus, type TcpStatus } from "@/lib/tcp-status";
 
@@ -140,22 +140,9 @@ function Workspace({ account }: { account: Account }) {
  */
 function ConnectTcpButton({ account, status }: { account: Account; status: TcpStatus }) {
   const connecting = status.state === "connecting";
-  const { data: settings } = useSettings();
   const check = useCheckHxConnection();
-  if (!settings) return null;
-  const missing = !settings.imTemplate
-    ? "Chưa có login template: nhập trong Cài đặt › Server chat"
-    : !account.im
-      ? "Hồ sơ chưa có thông tin chat: đăng xuất rồi đăng nhập lại"
-      : null;
+  const missing = !account.im ? "Hồ sơ chưa có thông tin chat: đăng xuất rồi đăng nhập lại" : null;
 
-  if (missing && !settings.imTemplate) {
-    return (
-      <Button variant="link" size="xs" className="h-auto p-0" render={<Link to="/settings" />} title={missing}>
-        Cài đặt server chat
-      </Button>
-    );
-  }
   return (
     <Button
       variant="outline"

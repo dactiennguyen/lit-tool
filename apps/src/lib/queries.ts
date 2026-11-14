@@ -49,10 +49,10 @@ export function useUpdateSettings() {
   });
 }
 
-export function useClearImTemplate() {
+export function useRefreshImServers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.settings.clearImTemplate(),
+    mutationFn: () => api.settings.refreshImServers(),
     onSuccess: (settings: AppSettings) => {
       qc.setQueryData(queryKeys.settings, settings);
       return qc.resetQueries({ queryKey: queryKeys.hx });

@@ -51,26 +51,34 @@ export interface AccountPatch {
 
 export interface AppSettings {
   apiBaseUrl: string;
-  /** Shared IM (chat) server for every account. */
-  imHost: string;
-  imPort: number;
-  imRestBase: string;
+  /** Easemob app key (org#app) of the chat server, shared by every account. */
+  imAppKey: string;
   /** Connect to the chat server right after an account logs in. */
   autoConnectTcp: boolean;
-  /**
-   * Identity inside the login template in use (saved, or the built-in default);
-   * the template itself never leaves the backend. Null only if a saved one is unreadable.
-   */
-  imTemplate: { appKey: string; username: string; isDefault: boolean } | null;
+  /** Server list fetched for the app key on first use and reused; null until then. */
+  imServers: SavedImServers | null;
 }
 
-/** Blank `imTemplateB64` keeps the saved template. */
-export type SettingsPatch = Partial<Omit<AppSettings, "imTemplate"> & { imTemplateB64: string }>;
+export interface SavedImServers {
+  appKey: string;
+  /** TCP endpoints; the first one is used. */
+  endpoints: { host: string; port: number }[];
+  restBase: string | null;
+  cluster: string | null;
+  fetchedAt: number;
+}
+
+export type SettingsPatch = Partial<Pick<AppSettings, "apiBaseUrl" | "imAppKey" | "autoConnectTcp">>;
 
 export const DEFAULT_API_BASE_URL = "https://www.litatom.com";
-export const DEFAULT_IM_HOST = "128.1.26.67";
-export const DEFAULT_IM_PORT = 6717;
-export const DEFAULT_IM_REST_BASE = "https://a1-sgp-ga.easemob.com";
+export const DEFAULT_IM_APP_KEY = "1102190223222824#lit";
+/** REST base when the server list names none (hx::DEFAULT_REST_BASE). */
+export const DEFAULT_IM_REST_BASE = "https://a1-sgp-ga.easecdn.com";
+
+/** The saved server list, when it belongs to the current app key. */
+export function chatServer(settings: AppSettings): SavedImServers | null {
+  return settings.imServers && settings.imServers.appKey === settings.imAppKey ? settings.imServers : null;
+}
 
 export class ApiError extends Error {}
 
@@ -126,6 +134,7 @@ export const api = {
   settings: {
     get: () => call<AppSettings>("settings_get"),
     update: (patch: SettingsPatch) => call<AppSettings>("settings_update", { patch }),
-    clearImTemplate: () => call<AppSettings>("settings_clear_im_template"),
+    /** Fetches Easemob's server list for the app key again and saves it. */
+    refreshImServers: () => call<AppSettings>("settings_refresh_im_servers"),
   },
 };
