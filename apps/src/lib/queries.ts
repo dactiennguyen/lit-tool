@@ -4,6 +4,8 @@ import { api, type Account, type AccountPatch, type AppSettings, type NewAccount
 export const queryKeys = {
   accounts: ["accounts"] as const,
   settings: ["settings"] as const,
+  /** Prefix of every query that calls the Litmatch API. */
+  lit: ["lit"] as const,
 };
 
 export function useSettings() {
@@ -14,13 +16,37 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (patch: Partial<AppSettings>) => api.settings.update(patch),
-    onSuccess: (settings) => qc.setQueryData(queryKeys.settings, settings),
+    onSuccess: (settings) => {
+      qc.setQueryData(queryKeys.settings, settings);
+      // Data from the old server must not be shown as fresh.
+      return qc.resetQueries({ queryKey: queryKeys.lit });
+    },
   });
 }
 
 /** Path of a corrupt accounts.json that was moved aside at startup, if any. */
 export function useRecoveredBackup() {
   return useQuery({ queryKey: ["accounts", "recovered"], queryFn: api.accounts.recoveredBackup, staleTime: Infinity });
+}
+
+export function useAccountInfo(accountId: string | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.lit, "account_info", accountId],
+    queryFn: () => api.lit.accountInfo(accountId!),
+    enabled: !!accountId,
+    retry: false, // don't hammer the server with a bad session
+    staleTime: 60_000,
+  });
+}
+
+export function useUserInfo(accountId: string | undefined, targetId: string | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.lit, "user_info", accountId, targetId],
+    queryFn: () => api.lit.userInfo(accountId!, targetId!),
+    enabled: !!accountId && !!targetId,
+    retry: false,
+    staleTime: 60_000,
+  });
 }
 
 export function useAccounts() {
@@ -31,7 +57,12 @@ function useAccountsMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResul
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.accounts }),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.accounts }),
+        // sid / user ID / device tokens may have changed: refetch API data too.
+        qc.invalidateQueries({ queryKey: queryKeys.lit }),
+      ]),
   });
 }
 

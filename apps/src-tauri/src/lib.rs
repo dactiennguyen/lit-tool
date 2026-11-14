@@ -1,4 +1,5 @@
 mod accounts;
+mod lit;
 mod settings;
 mod store;
 
@@ -26,6 +27,9 @@ pub fn run() {
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,
+            lit::lit_account_info,
+            lit::lit_online_users,
+            lit::lit_user_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

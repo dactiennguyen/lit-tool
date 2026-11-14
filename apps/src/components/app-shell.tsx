@@ -8,6 +8,7 @@ import {
   RadioIcon,
   SettingsIcon,
   SunIcon,
+  UserRoundIcon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -28,13 +29,14 @@ import { useActiveAccount } from "@/lib/active-account";
 import { useAccounts } from "@/lib/queries";
 
 const NAV: {
-  to: "/accounts" | "/online" | "/chat" | "/settings";
+  to: "/accounts" | "/profile" | "/online" | "/chat" | "/settings";
   label: string;
   icon: LucideIcon;
   /** Only shown once at least one account exists. */
   needsAccount?: boolean;
 }[] = [
   { to: "/accounts", label: "Tài khoản", icon: UsersIcon },
+  { to: "/profile", label: "Hồ sơ", icon: UserRoundIcon, needsAccount: true },
   { to: "/online", label: "Đang online", icon: RadioIcon, needsAccount: true },
   { to: "/chat", label: "Tin nhắn", icon: MessagesSquareIcon, needsAccount: true },
   { to: "/settings", label: "Cài đặt", icon: SettingsIcon },

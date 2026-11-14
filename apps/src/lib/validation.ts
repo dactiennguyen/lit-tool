@@ -9,6 +9,7 @@ const utf8Bytes = (s: string) => new TextEncoder().encode(s).length;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 const TOKEN = /^[A-Za-z0-9_-]+$/;
+const DEVICE_TOKEN = /^[A-Za-z0-9+/=_-]{1,512}$/;
 const VERSION = /^[A-Za-z0-9._-]+$/;
 
 /** Mirrors settings.rs: http(s) origin only, returns the normalised origin or an error message. */
@@ -31,6 +32,8 @@ export interface AccountFormValues {
   userId: string;
   deviceUuid: string;
   version: string;
+  siua: string;
+  dfpid: string;
   sid: string;
 }
 
@@ -50,6 +53,11 @@ export function validateAccountForm(v: AccountFormValues, opts: { sidRequired: b
 
   const version = v.version.trim();
   if (!version || !VERSION.test(version) || version.length > 64) errors.version = "Ví dụ: 7.77.0";
+
+  for (const key of ["siua", "dfpid"] as const) {
+    const t = v[key].trim();
+    if (t && !DEVICE_TOKEN.test(t)) errors[key] = "Chỉ gồm chữ, số và + / = _ - (tối đa 512)";
+  }
 
   const sid = v.sid.trim();
   if (opts.sidRequired && !sid) errors.sid = "Bắt buộc";

@@ -4,7 +4,6 @@
 //! The session token (`sid`) is stored in the OS credential store and is
 //! never sent back to the webview.
 
-#[cfg(test)]
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,6 +47,11 @@ pub struct Account {
     pub user_id: Option<String>,
     pub device_uuid: String,
     pub version: String,
+    /// Device tokens captured from the real device (optional request headers).
+    #[serde(default)]
+    pub siua: Option<String>,
+    #[serde(default)]
+    pub dfpid: Option<String>,
     pub created_at: u64,
     /// When the sid was last written to the credential store (ms since epoch).
     pub session_saved_at: Option<u64>,
@@ -60,6 +64,10 @@ pub struct NewAccount {
     pub user_id: Option<String>,
     pub device_uuid: String,
     pub version: String,
+    #[serde(default)]
+    pub siua: Option<String>,
+    #[serde(default)]
+    pub dfpid: Option<String>,
     pub sid: String,
 }
 
@@ -71,6 +79,10 @@ pub struct AccountPatch {
     #[serde(default, deserialize_with = "present")]
     pub user_id: Option<Option<String>>,
     pub version: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    pub siua: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub dfpid: Option<Option<String>>,
     pub sid: Option<String>,
 }
 
@@ -119,6 +131,15 @@ fn clean_version(v: &str) -> Result<String> {
     Ok(v.to_owned())
 }
 
+/// Mirrors the `dfpid`/`siua` check in scripts/src/lit/profile.ts.
+fn clean_device_token(v: Option<String>, name: &str) -> Result<Option<String>> {
+    match v.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()) {
+        None => Ok(None),
+        Some(t) if is_token(&t, 512, &['+', '/', '=']) => Ok(Some(t)),
+        Some(_) => Err(AccountError::Invalid(format!("{name} chỉ gồm chữ, số và + / = _ - (tối đa 512)"))),
+    }
+}
+
 fn clean_sid(v: &str) -> Result<String> {
     let v = v.trim();
     if v.is_empty() || v.len() > 4096 || v.chars().any(char::is_control) {
@@ -130,6 +151,7 @@ fn clean_sid(v: &str) -> Result<String> {
 // ---------- secret storage ----------
 
 pub trait SecretStore: Send + Sync {
+    fn get(&self, key: &str) -> Result<Option<String>>;
     fn set(&self, key: &str, secret: &str) -> Result<()>;
     fn delete(&self, key: &str) -> Result<()>;
 }
@@ -143,6 +165,14 @@ impl KeyringStore {
 }
 
 impl SecretStore for KeyringStore {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        match Self::entry(key)?.get_password() {
+            Ok(v) => Ok(Some(v)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(AccountError::Secret(e.to_string())),
+        }
+    }
+
     fn set(&self, key: &str, secret: &str) -> Result<()> {
         Self::entry(key)?
             .set_password(secret)
@@ -164,6 +194,9 @@ pub struct MemoryStore(pub Mutex<HashMap<String, String>>);
 
 #[cfg(test)]
 impl SecretStore for MemoryStore {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.0.lock().unwrap().get(key).cloned())
+    }
     fn set(&self, key: &str, secret: &str) -> Result<()> {
         self.0.lock().unwrap().insert(key.to_owned(), secret.to_owned());
         Ok(())
@@ -182,6 +215,9 @@ pub struct AccountRegistry {
     secrets: Box<dyn SecretStore>,
     /// Set when accounts.json was unreadable and moved aside on startup.
     recovered_backup: Option<PathBuf>,
+    /// sids already read from (or written to) the keychain this run, so each
+    /// API call doesn't hit the keychain again.
+    sessions: Mutex<HashMap<Uuid, String>>,
 }
 
 impl AccountRegistry {
@@ -196,7 +232,7 @@ impl AccountRegistry {
                 (Vec::new(), Some(backup))
             }
         };
-        Ok(Self { path, accounts: Mutex::new(accounts), secrets, recovered_backup })
+        Ok(Self { path, accounts: Mutex::new(accounts), secrets, recovered_backup, sessions: Mutex::default() })
     }
 
     pub fn recovered_backup(&self) -> Option<String> {
@@ -212,6 +248,8 @@ impl AccountRegistry {
         let user_id = clean_user_id(input.user_id)?;
         let device_uuid = clean_device_uuid(&input.device_uuid)?;
         let version = clean_version(&input.version)?;
+        let siua = clean_device_token(input.siua, "SIUA")?;
+        let dfpid = clean_device_token(input.dfpid, "DFPID")?;
         let sid = clean_sid(&input.sid)?;
 
         let mut accounts = self.accounts.lock().unwrap();
@@ -225,6 +263,8 @@ impl AccountRegistry {
             user_id,
             device_uuid,
             version,
+            siua,
+            dfpid,
             created_at: now,
             session_saved_at: Some(now),
         };
@@ -238,6 +278,7 @@ impl AccountRegistry {
             return Err(e);
         }
         *accounts = next;
+        self.sessions.lock().unwrap().insert(account.id, sid);
         Ok(account)
     }
 
@@ -255,6 +296,12 @@ impl AccountRegistry {
         if let Some(version) = patch.version {
             account.version = clean_version(&version)?;
         }
+        if let Some(siua) = patch.siua {
+            account.siua = clean_device_token(siua, "SIUA")?;
+        }
+        if let Some(dfpid) = patch.dfpid {
+            account.dfpid = clean_device_token(dfpid, "DFPID")?;
+        }
         let sid = patch.sid.as_deref().map(clean_sid).transpose()?;
         if sid.is_some() {
             account.session_saved_at = Some(now_ms());
@@ -264,14 +311,30 @@ impl AccountRegistry {
         // Metadata first: if that fails nothing has changed. If the keychain
         // write then fails, roll the metadata back so the old sid stays valid.
         self.persist(&next)?;
-        if let Some(sid) = sid
-            && let Err(e) = self.secrets.set(&id.to_string(), &sid)
-        {
-            let _ = self.persist(&accounts);
-            return Err(e);
+        if let Some(sid) = sid {
+            if let Err(e) = self.secrets.set(&id.to_string(), &sid) {
+                let _ = self.persist(&accounts);
+                return Err(e);
+            }
+            self.sessions.lock().unwrap().insert(id, sid);
         }
         *accounts = next;
         Ok(updated)
+    }
+
+    /// Account plus its sid, for signing requests inside the backend only.
+    pub fn with_session(&self, id: Uuid) -> Result<(Account, String)> {
+        let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        if let Some(sid) = self.sessions.lock().unwrap().get(&id) {
+            return Ok((account, sid.clone()));
+        }
+        // May block (keychain prompt): callers run this off the async runtime.
+        let sid = self
+            .secrets
+            .get(&id.to_string())?
+            .ok_or_else(|| AccountError::Invalid("Account chưa có session trong Keychain, hãy nhập lại sid".into()))?;
+        self.sessions.lock().unwrap().insert(id, sid.clone());
+        Ok((account, sid))
     }
 
     pub fn remove(&self, id: Uuid) -> Result<()> {
@@ -283,6 +346,7 @@ impl AccountRegistry {
         self.persist(&next)?;
         *accounts = next;
         drop(accounts);
+        self.sessions.lock().unwrap().remove(&id);
         // The account is gone either way; a leftover keychain item is harmless
         // and must not make the UI think the removal failed.
         if let Err(e) = self.secrets.delete(&id.to_string()) {
@@ -332,6 +396,7 @@ mod tests {
 
     struct Shared(Arc<MemoryStore>);
     impl SecretStore for Shared {
+        fn get(&self, k: &str) -> Result<Option<String>> { self.0.get(k) }
         fn set(&self, k: &str, s: &str) -> Result<()> { self.0.set(k, s) }
         fn delete(&self, k: &str) -> Result<()> { self.0.delete(k) }
     }
@@ -342,6 +407,8 @@ mod tests {
             user_id: Some("".into()),
             device_uuid: device.into(),
             version: "7.77.0".into(),
+            siua: None,
+            dfpid: Some(" DFP1 ".into()),
             sid: "secret-sid".into(),
         }
     }
@@ -357,6 +424,7 @@ mod tests {
         let (reg, store) = registry(dir.path());
         let acc = reg.add(input("dev-1")).unwrap();
         assert_eq!(acc.label, "Acc 1");
+        assert_eq!(acc.dfpid.as_deref(), Some("DFP1"));
         assert_eq!(acc.user_id, None);
 
         let raw = fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
@@ -377,6 +445,9 @@ mod tests {
         let mut bad_version = input("dev-2");
         bad_version.version = "7 77".into();
         assert!(matches!(reg.add(bad_version), Err(AccountError::Invalid(_))));
+        let mut bad_token = input("dev-4");
+        bad_token.siua = Some("has space".into());
+        assert!(matches!(reg.add(bad_token), Err(AccountError::Invalid(_))));
         let mut no_sid = input("dev-3");
         no_sid.sid = "   ".into();
         assert!(matches!(reg.add(no_sid), Err(AccountError::Invalid(_))));
@@ -394,11 +465,16 @@ mod tests {
                 label: Some("Renamed".into()),
                 user_id: Some(Some("10".into())),
                 version: None,
+                siua: Some(Some("a+b/c=".into())),
+                dfpid: Some(None),
                 sid: Some("new-sid".into()),
             })
             .unwrap();
         assert_eq!(updated.label, "Renamed");
         assert_eq!(updated.user_id.as_deref(), Some("10"));
+        assert_eq!(updated.siua.as_deref(), Some("a+b/c="));
+        assert_eq!(updated.dfpid, None);
+        assert_eq!(reg.with_session(acc.id).unwrap().1, "new-sid");
         assert_eq!(store.0.lock().unwrap().get(&acc.id.to_string()).unwrap(), "new-sid");
 
         // A failed patch must not partially apply.
@@ -406,6 +482,8 @@ mod tests {
             label: Some("Ok".into()),
             user_id: None,
             version: Some("bad version".into()),
+            siua: None,
+            dfpid: None,
             sid: None,
         });
         assert!(bad.is_err());
@@ -429,6 +507,21 @@ mod tests {
     }
 
     #[test]
+    fn session_is_cached_after_first_keychain_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, store) = registry(dir.path());
+        let acc = reg.add(input("dev-1")).unwrap();
+        store.0.lock().unwrap().clear(); // keychain emptied behind our back
+        assert_eq!(reg.with_session(acc.id).unwrap().1, "secret-sid");
+
+        let (fresh, store2) = registry(dir.path()); // new run: cache empty, reads keychain
+        store2.set(&acc.id.to_string(), "from-keychain").unwrap();
+        assert_eq!(fresh.with_session(acc.id).unwrap().1, "from-keychain");
+        fresh.remove(acc.id).unwrap();
+        assert!(fresh.with_session(acc.id).is_err());
+    }
+
+    #[test]
     fn patch_distinguishes_null_from_missing_user_id() {
         let clear: AccountPatch = serde_json::from_str(r#"{"userId":null}"#).unwrap();
         assert_eq!(clear.user_id, Some(None));
@@ -446,6 +539,7 @@ mod tests {
 
     struct FailingSet(Arc<MemoryStore>);
     impl SecretStore for FailingSet {
+        fn get(&self, k: &str) -> Result<Option<String>> { self.0.get(k) }
         fn set(&self, k: &str, s: &str) -> Result<()> {
             if s == "fail" { Err(AccountError::Secret("locked".into())) } else { self.0.set(k, s) }
         }
@@ -460,7 +554,7 @@ mod tests {
         let acc = reg.add(input("dev-1")).unwrap();
 
         // sid write fails -> old sid and metadata both unchanged, on disk too.
-        let patch = AccountPatch { label: Some("New".into()), user_id: None, version: None, sid: Some("fail".into()) };
+        let patch = AccountPatch { label: Some("New".into()), user_id: None, version: None, siua: None, dfpid: None, sid: Some("fail".into()) };
         assert!(reg.update(acc.id, patch).is_err());
         assert_eq!(reg.list(), vec![acc.clone()]);
         assert_eq!(store.0.lock().unwrap().get(&acc.id.to_string()).unwrap(), "secret-sid");

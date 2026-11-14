@@ -6,6 +6,8 @@ export interface Account {
   userId: string | null;
   deviceUuid: string;
   version: string;
+  siua: string | null;
+  dfpid: string | null;
   createdAt: number;
   sessionSavedAt: number | null;
 }
@@ -15,6 +17,8 @@ export interface NewAccount {
   userId: string | null;
   deviceUuid: string;
   version: string;
+  siua: string | null;
+  dfpid: string | null;
   sid: string;
 }
 
@@ -22,6 +26,8 @@ export interface AccountPatch {
   label?: string;
   userId?: string | null;
   version?: string;
+  siua?: string | null;
+  dfpid?: string | null;
   sid?: string;
 }
 
@@ -51,6 +57,16 @@ export const api = {
     update: (id: string, patch: AccountPatch) => call<Account>("accounts_update", { id, patch }),
     remove: (id: string) => call<void>("accounts_remove", { id }),
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
+  },
+  lit: {
+    /** Raw `account/account_info` JSON for a stored account. */
+    accountInfo: (accountId: string) => call<Record<string, unknown>>("lit_account_info", { accountId }),
+    /** Raw `user/get_info/:id` JSON for another user. */
+    userInfo: (accountId: string, targetId: string) =>
+      call<Record<string, unknown>>("lit_user_info", { accountId, targetId }),
+    /** Raw `home/online_users` JSON, one page. */
+    onlineUsers: (accountId: string, startPos: number, num: number) =>
+      call<Record<string, unknown>>("lit_online_users", { accountId, startPos, num }),
   },
   settings: {
     get: () => call<AppSettings>("settings_get"),
