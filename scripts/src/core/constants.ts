@@ -22,3 +22,7 @@ export const EASEMOB_REST_BASE = 'https://a1-sgp-ga.easemob.com';
 export const HTTP_TIMEOUT_MS = 12_000;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const MAX_FRAME_BYTES = 1024 * 1024;
+
+// home/online_users paging limits; keep in sync with ONLINE_PAGE_MAX / ONLINE_START_MAX in apps/src-tauri/src/lit.rs.
+export const ONLINE_PAGE_MAX = 50;
+export const ONLINE_START_MAX = 10_000;

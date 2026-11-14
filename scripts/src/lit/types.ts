@@ -19,13 +19,66 @@ export interface LitResponse<T> {
   /** 0 means accepted. */
   result: number;
   data: T;
-  trace_id?: string;
-  message?: string;
+  trace_id?: string | null;
+  message?: string | null;
 }
+
+export interface LitFailure {
+  success: false;
+  result: number;
+  data?: unknown;
+  trace_id?: string | null;
+  message?: string | null;
+}
+
+export type LitApiResponse<T> = (Omit<LitResponse<T>, 'success' | 'result'> & {
+  success: true;
+  result: 0;
+}) | LitFailure;
+
+export type UserInfo = Pick<UserInfoMe, 'user_id' | 'huanxin_id' | 'nickname' | 'avatar'> &
+  Partial<Omit<UserInfoMe, 'user_id' | 'huanxin_id' | 'nickname' | 'avatar' | 'session' | 'huanxin'>> & {
+    is_been_blocked?: boolean;
+    accost_limit_gift_info?: unknown;
+    cross_region?: boolean;
+  };
+
+export type OnlineUser = Omit<UserInfo, 'tags'> & {
+  online?: boolean;
+  party?: string;
+  tags?: Array<Omit<UserTag, 'tag_type'> & { tag_type?: string }>;
+  rec_reason?: string;
+  recommend_tag?: string;
+  recommend_tag_detail?: string;
+  rec_debug_info?: string;
+};
+
+export interface OnlineUsersData {
+  user_infos: OnlineUser[];
+  has_next: boolean;
+  next_start: number;
+}
+
+export interface OnlineUsersQuery {
+  start_pos?: number;
+  num?: number;
+  from_page?: string;
+}
+
+export interface UserInfoQuery {
+  from?: string;
+  source?: string;
+  is_zone?: number;
+  is_mini_profile?: number;
+}
+
+export type UserInfoResponse = LitApiResponse<UserInfo>;
+export type OnlineUsersResponse = LitApiResponse<OnlineUsersData>;
+export type AccountInfoResponse = LitApiResponse<Wallet>;
 
 // ---------- user/get_info/me ----------
 
-export type UserInfoMeResponse = LitResponse<UserInfoMe>;
+export type UserInfoMeResponse = LitApiResponse<UserInfoMe>;
 
 /** The logged-in account's own profile from `user/get_info/me?from=me&source=me`. */
 export interface UserInfoMe {
@@ -42,7 +95,7 @@ export interface UserInfoMe {
   region_trans: string;
   ip_city: string;
   ip_country: string;
-  mapping_region: MappingRegion;
+  mapping_region: MappingRegion | null;
   cover_photo: FileId | '';
   frame_fileid: FileId | '';
   frame_id: unknown;
@@ -150,7 +203,7 @@ export interface MappingRegion {
 export interface UserTag {
   tag_id: ObjectId;
   tag_name: string;
-  tag_type: string;
+  tag_type?: string;
 }
 
 export interface BirthInfo {
@@ -214,7 +267,7 @@ export interface PartyLevelSide {
   level: number;
   avatar: FileId;
   new_diamonds: number;
-  accelerate_diamonds: number;
+  accelerate_diamonds?: number;
 }
 
 /** Compact user card embedded in other objects. */

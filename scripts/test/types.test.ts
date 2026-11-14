@@ -5,7 +5,7 @@ import sample from './fixtures/user-info-me.example.json' with { type: 'json' };
 
 // Compile-time check: `npm run typecheck` fails if the types drift from the
 // (anonymised) real response.
-const typed: UserInfoMeResponse = sample;
+const typed = { ...sample, success: true, result: 0 } satisfies UserInfoMeResponse;
 
 // The assignment above catches fields missing from the sample. These catch the
 // reverse: a key present in the response but not declared in the type. On
@@ -16,6 +16,8 @@ const noUndeclaredProfileKeys: MustBeEmpty<Undeclared<typeof sample.data, UserIn
 const noUndeclaredToyKeys: MustBeEmpty<Undeclared<(typeof sample.data.toys.gifts)[number], ToyGift>> = true;
 
 test('user/get_info/me fixture matches the declared type', () => {
+  assert.equal(sample.success, true);
+  assert.equal(sample.result, 0);
   assert.equal(typed.success, true);
   assert.equal(typed.result, 0);
   assert.equal(typed.data.toys.gifts[0]?.resource_level_info.name, 'SSR');

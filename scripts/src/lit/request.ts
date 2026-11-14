@@ -64,6 +64,26 @@ export function buildGetRequest(endpoint: string, profile: LitProfile, query: Qu
   return { endpoint, url, headers, requestId, shadow: true };
 }
 
+/** `user/get_info/me?from=me&source=me`: the logged-in account's own profile (shared by CLI and typed API). */
+export function buildUserMeRequest(profile: LitProfile, options?: SigningOptions): GetRequest {
+  const request = buildGetRequest('user/get_info/me', profile, { from: 'me', source: 'me' }, options);
+  // Only send X-SIUA when a real device value is configured (LIT_SIUA), never the generated placeholder.
+  if (!profile.siua) delete request.headers['X-SIUA'];
+  return request;
+}
+
+/**
+ * `user/get_info/:id` for `targetId` (shared by CLI and typed API). `lit-user-id` stays the CALLER:
+ * sent only when known and different from the target. Validating `targetId` is the caller's job.
+ */
+export function buildUserInfoRequest(profile: LitProfile, targetId: string, query: Query = {},
+  options?: SigningOptions): GetRequest {
+  const request = buildGetRequest('user/get_info/:id', { ...profile, userId: targetId }, query, options);
+  if (profile.userId && profile.userId !== targetId) request.headers['lit-user-id'] = profile.userId;
+  else delete request.headers['lit-user-id'];
+  return request;
+}
+
 export interface ImPostPayloads {
   'user/accost_count': { targetId: string };
   'user/conversation': { conversation_id: string; conversation_type: 0 };
