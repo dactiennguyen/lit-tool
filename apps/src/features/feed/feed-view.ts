@@ -77,11 +77,14 @@ export function toFeedView(page: FeedPage, startPos: number): FeedView {
 }
 
 /**
- * Next start position, or undefined when there is nothing more. A page that
- * adds no new post means the server ignored the cursor: stop instead of looping.
+ * `start_pos` for the next page, or undefined when there is nothing more.
+ * Feeds are recommendations: the server answers `next_start: 1` on every page
+ * and each request with it returns new posts, so the cursor is not an offset
+ * and may repeat. Paging stops when the server says there is no more, or when
+ * a page brings no post that was not shown already (which also ends a loop).
  */
-export function nextFeedStart(page: FeedView, raw: number, seenBefore: ReadonlySet<string>): number | undefined {
+export function nextFeedStart(page: FeedView, seenBefore: ReadonlySet<string>): number | undefined {
   if (page.hasMore === false || page.nextStart === null) return undefined;
-  if (page.posts.length > 0 && page.posts.every((p) => seenBefore.has(p.key))) return undefined;
-  return page.nextStart > raw ? page.nextStart : undefined;
+  if (page.posts.every((p) => seenBefore.has(p.key))) return undefined;
+  return page.nextStart;
 }

@@ -12,7 +12,7 @@ import { UserInfoDialog, type UserRef } from "@/features/users/user-info-dialog"
 import type { Account, FeedKind } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { FeedPicture, FeedPost } from "./feed-view";
-import { useFeed } from "./use-feed";
+import { useFeed, useRestartFeed } from "./use-feed";
 
 const KINDS: { kind: FeedKind; label: string }[] = [
   { kind: "Trends", label: "Phổ biến" },
@@ -25,6 +25,7 @@ const countFmt = new Intl.NumberFormat("vi-VN", { notation: "compact" });
 export function FeedTab({ account }: { account: Account }) {
   const [kind, setKind] = useState<FeedKind>("Trends");
   const feed = useFeed(account.id, kind);
+  const restart = useRestartFeed(account.id, kind);
   const [viewing, setViewing] = useState<UserRef | null>(null);
   const [picture, setPicture] = useState<FeedPicture | null>(null);
 
@@ -51,7 +52,7 @@ export function FeedTab({ account }: { account: Account }) {
             </Button>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={() => feed.refetch()} disabled={feed.isFetching}>
+        <Button variant="outline" size="sm" onClick={() => void restart()} disabled={feed.isFetching}>
           <RefreshCwIcon className={cn(refreshing && "animate-spin")} aria-hidden />
           Làm mới
         </Button>
@@ -69,7 +70,7 @@ export function FeedTab({ account }: { account: Account }) {
           title="Không tải được bảng tin"
           description={feed.error.message}
           action={
-            <Button variant="outline" onClick={() => feed.refetch()}>
+            <Button variant="outline" onClick={() => void restart()}>
               Thử lại
             </Button>
           }

@@ -34,12 +34,13 @@ describe("feed view", () => {
     expect(p.hasVideo).toBe(true);
   });
 
-  it("pages on the server cursor and stops when it repeats or ends", () => {
-    const view = toFeedView({ feeds: [item()], hasNext: true, nextStart: 20 }, 0);
-    expect(nextFeedStart(view, 0, new Set())).toBe(20);
-    expect(nextFeedStart(view, 20, new Set())).toBeUndefined(); // cursor did not advance
-    expect(nextFeedStart(view, 0, new Set(["f1"]))).toBeUndefined(); // nothing new
-    expect(nextFeedStart({ ...view, hasMore: false }, 0, new Set())).toBeUndefined();
-    expect(nextFeedStart({ ...view, nextStart: null }, 0, new Set())).toBeUndefined();
+  it("keeps paging with a repeated cursor while pages bring new posts", () => {
+    // The server answers next_start 1 on every page; start_pos=1 keeps returning new posts.
+    const view = toFeedView({ feeds: [item()], hasNext: true, nextStart: 1 }, 1);
+    expect(nextFeedStart(view, new Set(["other"]))).toBe(1);
+    expect(nextFeedStart(view, new Set(["f1"]))).toBeUndefined(); // nothing new: stop
+    expect(nextFeedStart({ ...view, posts: [] }, new Set())).toBeUndefined(); // empty page: stop
+    expect(nextFeedStart({ ...view, hasMore: false }, new Set())).toBeUndefined();
+    expect(nextFeedStart({ ...view, nextStart: null }, new Set())).toBeUndefined();
   });
 });
