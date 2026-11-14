@@ -33,7 +33,7 @@ static std::mutex lock;
 static bool attempted;
 static JavaVM *java_vm;
 static int (*original_property_get)(const char *, char *);
-static thread_local bool reading_model;
+static thread_local bool reading_build_property;
 static thread_local bool reading_drm;
 static thread_local std::array<uint8_t, 256> drm_copy;
 static media_status_t (*original_drm_get)(AMediaDrm *, const char *, AMediaDrmByteArray *);
@@ -42,13 +42,18 @@ static media_status_t (*original_drm_get)(AMediaDrm *, const char *, AMediaDrmBy
 // the actual Android system property continue to use the original value.
 static int property_get(const char *name, char *value) {
     int result = original_property_get(name, value);
-    if (!name || !value || strcmp(name, "ro.product.model") || reading_model || !java_vm)
+    if (!name || !value || reading_build_property || !java_vm)
         return result;
+    const char *field_name = nullptr;
+    if (!strcmp(name, "ro.product.model")) field_name = "MODEL";
+    else if (!strcmp(name, "ro.product.brand")) field_name = "BRAND";
+    else if (!strcmp(name, "ro.product.manufacturer")) field_name = "MANUFACTURER";
+    else return result;
     Dl_info caller{};
     if (!dladdr(__builtin_return_address(0), &caller) ||
         reinterpret_cast<uintptr_t>(caller.dli_fbase) != base) return result;
 
-    reading_model = true;
+    reading_build_property = true;
     JNIEnv *env = nullptr;
     bool attached = false;
     jint state = java_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
@@ -58,24 +63,24 @@ static int property_get(const char *name, char *value) {
     }
     if (state == JNI_OK && env) {
         jclass build = env->FindClass("android/os/Build");
-        jfieldID field = build ? env->GetStaticFieldID(build, "MODEL", "Ljava/lang/String;") : nullptr;
-        jstring model = field ? static_cast<jstring>(env->GetStaticObjectField(build, field)) : nullptr;
-        const char *text = model ? env->GetStringUTFChars(model, nullptr) : nullptr;
+        jfieldID field = build ? env->GetStaticFieldID(build, field_name, "Ljava/lang/String;") : nullptr;
+        jstring property = field ? static_cast<jstring>(env->GetStaticObjectField(build, field)) : nullptr;
+        const char *text = property ? env->GetStringUTFChars(property, nullptr) : nullptr;
         if (text) {
             size_t length = strlen(text);
             if (length > 0 && length < PROP_VALUE_MAX) {
                 memcpy(value, text, length + 1);
                 result = static_cast<int>(length);
-                LOG("model synchronized with Build.MODEL");
-            } else LOG("model skipped: invalid length");
-            env->ReleaseStringUTFChars(model, text);
+                LOG("%s synchronized with Build.%s", name, field_name);
+            } else LOG("%s skipped: invalid length", name);
+            env->ReleaseStringUTFChars(property, text);
         }
-        if (env->ExceptionCheck()) { env->ExceptionClear(); LOG("model skipped: JNI error"); }
-        if (model) env->DeleteLocalRef(model);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); LOG("%s skipped: JNI error", name); }
+        if (property) env->DeleteLocalRef(property);
         if (build) env->DeleteLocalRef(build);
     }
     if (attached) java_vm->DetachCurrentThread();
-    reading_model = false;
+    reading_build_property = false;
     return result;
 }
 

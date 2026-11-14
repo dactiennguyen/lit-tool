@@ -34,7 +34,8 @@ Khi caller thuộc `libliteye.so` và đọc `ro.product.model`, hook lấy
 `android.os.Build.MODEL` hiện tại và trả giá trị đó. Các property khác và các
 caller ngoài thư viện tiếp tục dùng giá trị gốc; system property không bị sửa.
 Nếu JVM chưa sẵn sàng, JNI lỗi hoặc chuỗi không vừa bộ đệm property của Android,
-hook giữ giá trị gốc. Không đồng bộ `brand`, `manufacturer` hay các trường khác.
+hook giữ giá trị gốc. Tại thời điểm kiểm tra này, hook chưa đồng bộ `brand`
+và `manufacturer`.
 
 Đã build và cài APK, so SHA-256 của APK trên máy với bản build. Với Eye và
 Hide My Device cùng bật, gọi `LitEye.detect()` qua Frida 17.10.0, không login:
@@ -57,6 +58,19 @@ Ba lượt gọi bổ sung trong cùng tiến trình Pixel đều giải mã AES
 padding thành công và trả `detect().model = "Pixel 6a"`; tiến trình vẫn chạy.
 Các lượt đó chưa giải thích được blob lỗi padding trước đó và không thay thế
 việc kiểm tra độ ổn định lâu dài.
+
+## Đồng bộ brand và manufacturer — 14/11/2026
+
+Hook `__system_property_get` cũng trả `Build.BRAND` và `Build.MANUFACTURER`
+khi `libliteye.so` đọc tương ứng `ro.product.brand` và
+`ro.product.manufacturer`. Giới hạn caller và cách xử lý lỗi giống hook model.
+Sau khi cài module và mở lại Litmatch trên user 10, một lần gọi `detect()`
+giải mã thành công 198 trường: `model`, `brand`, `manufacturer` lần lượt là
+`SM-S918B`, `samsung`, `samsung`, khớp ba trường `Build` trong cùng tiến trình.
+Đây là kiểm tra tại thiết bị, chưa xác minh dữ liệu phía server hay độ ổn định
+lâu dài; các trường khác không được kết luận là đã đồng bộ.
+Bản module trước cập nhật được lưu tại
+`.private/vector-eye-before-brand-manufacturer-20261114.apk`.
 
 **Chưa ổn định:** module từng gây `SIGSEGV/SEGV_ACCERR` trong Litmatch trên
 user 10. Nguyên nhân gốc chưa được sửa; có thể tắt module trong Vector nếu app
