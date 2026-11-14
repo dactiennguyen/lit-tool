@@ -1,5 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="Eye test module" android:hasCode="true" android:extractNativeLibs="false">
+    <permission android:name="vn.lit.eyemodule.permission.EXPORT_ACCOUNT" android:protectionLevel="signature" />
+    <uses-permission android:name="vn.lit.eyemodule.permission.EXPORT_ACCOUNT" />
+    <queries><package android:name="com.litatom.app" /></queries>
+    <application android:label="Eye" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:hasCode="true" android:extractNativeLibs="false">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposeddescription" android:value="LitEye user 10 experiment" />
         <meta-data android:name="xposedminversion" android:value="82" />

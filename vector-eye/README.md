@@ -1,5 +1,80 @@
 # Module Vector thử nghiệm Eye
 
+## Eye 0.2: ứng dụng xem và copy JSON tài khoản
+
+Eye có biểu tượng launcher và màn hình riêng trên **Android user 10**.
+Sau khi cài/cập nhật APK, giữ Eye bật cho `com.litatom.app/10` trong Vector,
+đóng rồi mở lại Litmatch để nạp module mới.
+
+1. Mở **Eye** ở user 10.
+2. Bấm **Mở Litmatch**, chờ tài khoản đăng nhập xong rồi quay lại Eye.
+3. Bấm **Lấy tài khoản hiện tại**. Eye hiện nickname và user ID của bản chụp.
+4. Bấm **Copy JSON** để sao chép nguyên JSON. **Xem JSON / Ẩn JSON** mở/đóng nội dung.
+
+Việc lấy/copy chạy trên điện thoại, không cần máy tính, ADB hoặc Frida mỗi lần.
+Eye không gọi mạng và không đăng nhập tài khoản khác. Module đọc dữ liệu hiện có
+trong tiến trình Litmatch. Nếu app đã bị đóng, mở lại Litmatch rồi thử lại.
+Eye mở ở user khác sẽ hiển thị hướng dẫn dùng user 10 và không cho lấy dữ liệu.
+
+JSON gồm:
+
+| Nhóm | Nguồn / dữ liệu |
+|---|---|
+| `account` | MMKV `litmatch_key_info`: userId, session, hxPwd |
+| `profile` | Hồ sơ `sp_user_info` của tài khoản; giữ nguyên các field lưu trong app |
+| `env` | LIT_USER_ID, LIT_SID, LIT_PLATFORM, LIT_VERSION, LIT_UUID, HX_USERNAME, HX_PASSWORD, HX_APP_KEY khi có |
+| `im` | Cấu hình host/port/REST hiện có trong EMOptions và trạng thái loggedIn |
+| `missing` | Những field env chưa lấy được; không tự điền giá trị đoán |
+| metadata | schemaVersion, capturedAt (Unix milliseconds), androidUser, packageName, source |
+
+`configuredHost` / `configuredRestServer` có thể null, `configuredPort` có thể 0
+khi SDK dùng discovery; đây không phải địa chỉ socket đang kết nối. Có thể dùng
+`HX_APP_KEY`, `HX_USERNAME`, `HX_PASSWORD` với script Node discovery hiện có.
+JSON này không bao gồm Google password/token, HX_LOGIN_TEMPLATE_B64, token IM mới,
+lịch sử chat hoặc JSON detect 198 trường thiết bị. Các trường profile thay đổi theo phiên bản app.
+
+Reader kiểm tra session/userId hiện tại khớp MMKV và profile, kiểm tra username IM
+nếu SDK có giá trị, rồi đối chiếu session/userId lần nữa trước khi trả dữ liệu.
+Nếu không khớp, báo cần chờ/lấy lại; không ghép credential của hai tài khoản.
+Đọc thành công không chứng minh session còn được server chấp nhận.
+
+Giao tiếp Eye → module dùng receiver động chỉ nhận sender có permission
+`vn.lit.eyemodule.permission.EXPORT_ACCOUNT` cấp theo chữ ký. Phản hồi qua
+`ResultReceiver` của yêu cầu, không broadcast credential cho các app khác.
+JSON chỉ giữ trong bộ nhớ và clipboard khi người dùng bấm copy; không ghi file/log.
+Preview mặc định ẩn, clipboard đánh dấu sensitive, cửa sổ không cho screenshot.
+
+Build (JDK 17, Android SDK/NDK như bên dưới):
+
+```sh
+gradle :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+```
+
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
+Test: `app/src/androidTest/java/vn/lit/eyemodule/ExportInstrumentation.java`.
+Test chỉ in trạng thái, số field và độ dài, không in giá trị xác thực.
+
+```sh
+adb shell am instrument --user 10 -w vn.lit.eyemodule.test/vn.lit.eyemodule.ExportInstrumentation
+```
+
+Test tự mở Litmatch và chờ module sẵn sàng. Trên MIUI, instrumentation có thể chờ
+quyền mở Activity từ nền: mở Eye để test tiếp tục bấm lấy/copy.
+Nếu test bị timeout do Litmatch đã đóng, mở Litmatch và chạy lại. APK test chỉ dùng
+để kiểm chứng, không cần cài để sử dụng Eye.
+
+Phần native đồng bộ thông tin thiết bị vẫn là mã trước đó. Các giới hạn/crash đã
+ghi bên dưới chưa được coi là đã sửa bởi tính năng xuất JSON.
+
+Đã kiểm chứng trên máy ngày 15/11/2026: Eye 0.2 cài cho user 10, icon launcher xuất
+hiện; lấy tài khoản May troi thành công, profile 158 field, JSON khoảng 29 KB,
+`missing=[]`. Instrumentation kiểm tra fetch, preview toggle, clipboard và đối chiếu
+session/userId/HX username/password đều PASS; permission của Eye được cấp và shell
+không có permission xuất tài khoản. Thử thủ công sau test: JSON ẩn mặc định, nút
+Copy JSON/Xem JSON được bật. Build debug và lint thành công (0 lỗi; còn warning
+reflection Android nội bộ, chuỗi giao diện tiếng Việt, ABI/build config).
+APK test được gỡ sau kiểm chứng; chỉ app Eye ở lại trên điện thoại.
+
 ## Đồng bộ DRM native — 14/11/2026
 
 Trong một lượt quan sát trước thay đổi, `android_id_secure` và

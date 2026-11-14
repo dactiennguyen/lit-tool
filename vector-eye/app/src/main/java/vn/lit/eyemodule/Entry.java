@@ -9,6 +9,7 @@ public final class Entry implements IXposedHookLoadPackage {
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p) {
         if (!"com.litatom.app".equals(p.packageName) || !p.packageName.equals(p.processName)
                 || Process.myUid() / 100000 != 10) return;
+        AccountBridge.start();
         try {
             System.loadLibrary("eyeoverride");
             Log.i("VectorEye", "module loaded in user 10");
