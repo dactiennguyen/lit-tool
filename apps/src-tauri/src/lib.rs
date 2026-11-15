@@ -9,6 +9,7 @@ mod lit;
 mod lit_types;
 mod msync;
 mod settings;
+mod siua;
 mod store;
 mod update;
 

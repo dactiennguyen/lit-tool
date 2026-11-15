@@ -7,10 +7,37 @@ import { assertSame, legacy, litResponse, outcome, outcomeAsync, PROFILE, withFe
 import { decodeShadow, ivOf } from '../src/crypto/shadow.ts';
 import { fetchGet, fetchPost } from '../src/lit/client.ts';
 import { loadEnvProfile, loadJsonProfile, loadQuery, validateProfile } from '../src/lit/profile.ts';
-import { buildGetRequest, buildPostRequest } from '../src/lit/request.ts';
+import { buildGetRequest, buildPostRequest, buildUserMeRequest } from '../src/lit/request.ts';
+import { decodeSiua, SCAN_CLEAN } from '../src/crypto/siua.ts';
 import { buildEyeUrl, decodeDetect, encodeDetect, prepareFields } from '../src/lit/eye-device.ts';
 
 const old = { common: legacy('common'), eyeDevice: legacy('eye-device') };
+
+test('GET, self-profile and POST attach fresh default SIUA to outgoing requests', async () => {
+  const profile = { ...PROFILE, siua: undefined };
+  const before = Date.now();
+  const { result, calls } = await withFetch(req => litResponse(req, { success: true, result: 0 }), async () => {
+    for (let i = 0; i < 2; i++) {
+      await fetchGet(buildGetRequest('home/online_users', profile));
+      await fetchGet(buildUserMeRequest(profile));
+      await fetchPost(buildPostRequest('user/accost_count', profile, { targetId: 'test-user' }));
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 6);
+  const tokens = calls.map(req => req.headers['x-siua']!);
+  assert.equal(new Set(tokens).size, tokens.length);
+  for (const token of tokens) {
+    const parts = decodeSiua(token).split('}}');
+    const [version, timestamp, uuid] = parts[1]!.split('|');
+    assert.equal(parts[0], '2.1');
+    assert.equal(version, '1.9.9');
+    assert.ok(Number(timestamp) >= before && Number(timestamp) <= Date.now());
+    assert.match(uuid!, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(parts[2], SCAN_CLEAN);
+  }
+});
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'scripts-test-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const writeTmp = (name: string, content: string): string => {

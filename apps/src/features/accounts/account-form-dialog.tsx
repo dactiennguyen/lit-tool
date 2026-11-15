@@ -15,10 +15,8 @@ const DEFAULT_VERSION = "7.77.0";
 function initialValues(account: Account | null): AccountFormValues {
   return {
     label: account?.label ?? "",
-    userId: account?.userId ?? "",
     deviceUuid: account?.deviceUuid ?? "",
     version: account?.version ?? DEFAULT_VERSION,
-    siua: account?.siua ?? "",
     dfpid: account?.dfpid ?? "",
     sid: "",
   };
@@ -54,24 +52,20 @@ export function AccountFormDialog({
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const userId = values.userId.trim() || null;
-    const siua = values.siua.trim() || null;
     const dfpid = values.dfpid.trim() || null;
     const sid = values.sid.trim();
     try {
       if (account) {
         await update.mutateAsync({
           id: account.id,
-          patch: { label: values.label, userId, version: values.version, siua, dfpid, ...(sid ? { sid } : {}) },
+          patch: { label: values.label, version: values.version, dfpid, ...(sid ? { sid } : {}) },
         });
         toast.success("Đã lưu thay đổi");
       } else {
         const created = await add.mutateAsync({
           label: values.label,
-          userId,
           deviceUuid: values.deviceUuid,
           version: values.version,
-          siua,
           dfpid,
           sid,
         });
@@ -109,32 +103,18 @@ export function AccountFormDialog({
             )}
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="User ID" optional error={errors.userId}>
-              {(id, describedBy) => (
-                <Input
-                  id={id}
-                  value={values.userId}
-                  onChange={(e) => set("userId")(e.target.value)}
-                  className="font-mono"
-                  aria-invalid={!!errors.userId}
-                  aria-describedby={describedBy}
-                />
-              )}
-            </Field>
-            <Field label="Version app" error={errors.version}>
-              {(id, describedBy) => (
-                <Input
-                  id={id}
-                  value={values.version}
-                  onChange={(e) => set("version")(e.target.value)}
-                  className="font-mono"
-                  aria-invalid={!!errors.version}
-                  aria-describedby={describedBy}
-                />
-              )}
-            </Field>
-          </div>
+          <Field label="Version app" error={errors.version}>
+            {(id, describedBy) => (
+              <Input
+                id={id}
+                value={values.version}
+                onChange={(e) => set("version")(e.target.value)}
+                className="font-mono"
+                aria-invalid={!!errors.version}
+                aria-describedby={describedBy}
+              />
+            )}
+          </Field>
 
           <Field
             label="Device UUID"
@@ -191,38 +171,22 @@ export function AccountFormDialog({
           <fieldset className="grid gap-3 rounded-lg border p-3">
             <legend className="px-1 text-xs text-muted-foreground">Token thiết bị (không bắt buộc)</legend>
             <p className="-mt-1 text-xs text-muted-foreground">
-              Giá trị thật lấy từ máy đã đăng nhập. Để trống thì app không gửi các header này.
+              Giá trị thật lấy từ máy đã đăng nhập. Để trống thì app không gửi header X-DFPID.
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="SIUA" error={errors.siua}>
-                {(id, describedBy) => (
-                  <Input
-                    id={id}
-                    value={values.siua}
-                    onChange={(e) => set("siua")(e.target.value)}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="font-mono"
-                    aria-invalid={!!errors.siua}
-                    aria-describedby={describedBy}
-                  />
-                )}
-              </Field>
-              <Field label="DFPID" error={errors.dfpid}>
-                {(id, describedBy) => (
-                  <Input
-                    id={id}
-                    value={values.dfpid}
-                    onChange={(e) => set("dfpid")(e.target.value)}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="font-mono"
-                    aria-invalid={!!errors.dfpid}
-                    aria-describedby={describedBy}
-                  />
-                )}
-              </Field>
-            </div>
+            <Field label="DFPID" error={errors.dfpid}>
+              {(id, describedBy) => (
+                <Input
+                  id={id}
+                  value={values.dfpid}
+                  onChange={(e) => set("dfpid")(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="font-mono"
+                  aria-invalid={!!errors.dfpid}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
           </fieldset>
 
           <DialogFooter>
@@ -242,13 +206,11 @@ export function AccountFormDialog({
 
 function Field({
   label,
-  optional = false,
   hint,
   error,
   children,
 }: {
   label: string;
-  optional?: boolean;
   hint?: string | undefined;
   error?: string | undefined;
   children: (id: string, describedBy: string | undefined) => React.ReactNode;
@@ -257,12 +219,8 @@ function Field({
   const msgId = `${id}-msg`;
   const message = error ?? hint;
   return (
-    // content-start: side-by-side fields stay aligned even when only one shows a message
-    <div className="grid content-start gap-1.5">
-      <Label htmlFor={id}>
-        {label}
-        {optional && <span className="font-normal text-muted-foreground">(không bắt buộc)</span>}
-      </Label>
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
       {children(id, message ? msgId : undefined)}
       {message && (
         <p id={msgId} className={error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>

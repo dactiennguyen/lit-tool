@@ -3,6 +3,7 @@ import http from 'node:http';
 import type net from 'node:net';
 import { test } from 'node:test';
 import { decodeShadow } from '../src/crypto/shadow.ts';
+import { decodeSiua, SCAN_CLEAN } from '../src/crypto/siua.ts';
 import { LIT_ENV, runNode } from './helpers.ts';
 
 interface Seen { url: string; headers: http.IncomingHttpHeaders }
@@ -19,7 +20,7 @@ async function withServer(json: unknown, run: (base: string, seen: Seen[]) => Pr
   finally { server.close(); }
 }
 
-test('user-me: GET user/get_info/me with from=me&source=me, no generated X-SIUA', () =>
+test('user-me: GET user/get_info/me with from=me&source=me and generated X-SIUA', () =>
   withServer({ success: true, result: 0, data: { nickname: 'Me' } }, async (base, seen) => {
     const out = await runNode(['src/cli/user-me.ts'], { ...LIT_ENV, LIT_BASE_URL: base, LIT_USER_ID: 'u10' });
     assert.equal(out.code, 0, out.stderr);
@@ -32,13 +33,17 @@ test('user-me: GET user/get_info/me with from=me&source=me, no generated X-SIUA'
     assert.equal(url.searchParams.get('source'), 'me');
     const headers = seen[0]!.headers;
     assert.equal(headers['lit-user-id'], 'u10');
-    assert.equal(headers['x-siua'], undefined);
+    const token = headers['x-siua'];
+    assert.equal(typeof token, 'string');
+    const parts = decodeSiua(String(token)).split('}}');
+    assert.equal(parts[0], '2.1');
+    assert.equal(parts[2], SCAN_CLEAN);
     assert.equal(decodeShadow(String(headers['x-application-info'])), url.search.slice(1));
     assert.match(out.stdout, /"success": true/);
     assert.match(out.stdout, /"nickname": "Me"/);
   }));
 
-test('user-me: sends X-SIUA only when LIT_SIUA is set', () =>
+test('user-me: honors explicit LIT_SIUA', () =>
   withServer({ success: true, result: 0 }, async (base, seen) => {
     const out = await runNode(['src/cli/user-me.ts'], { ...LIT_ENV, LIT_BASE_URL: base, LIT_SIUA: 'REAL-SIUA' });
     assert.equal(out.code, 0, out.stderr);

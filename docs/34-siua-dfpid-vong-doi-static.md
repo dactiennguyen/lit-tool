@@ -1,5 +1,8 @@
 # Vòng đời SIUA / DFPID — xác minh tĩnh 15/11/2026
 
+Nguồn và điều kiện bật `litEnableSIUA` đã truy tiếp tới API settings_v2/cache,
+kèm response xác minh: [tài liệu 35](35-litEnableSIUA-nguon-cau-hinh.md).
+
 Đọc bản Litmatch 7.77.0 (versionCode 711) trong workspace bằng skill
 android-reverse-engineering và reverse-engineer-anything. Không dùng ADB,
 không chạy app, không gửi API. Source Java đã decompile; phần native đối chiếu

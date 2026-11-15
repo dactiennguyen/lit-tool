@@ -66,10 +66,7 @@ export function buildGetRequest(endpoint: string, profile: LitProfile, query: Qu
 
 /** `user/get_info/me?from=me&source=me`: the logged-in account's own profile (shared by CLI and typed API). */
 export function buildUserMeRequest(profile: LitProfile, options?: SigningOptions): GetRequest {
-  const request = buildGetRequest('user/get_info/me', profile, { from: 'me', source: 'me' }, options);
-  // Only send X-SIUA when a real device value is configured (LIT_SIUA), never the generated placeholder.
-  if (!profile.siua) delete request.headers['X-SIUA'];
-  return request;
+  return buildGetRequest('user/get_info/me', profile, { from: 'me', source: 'me' }, options);
 }
 
 /**

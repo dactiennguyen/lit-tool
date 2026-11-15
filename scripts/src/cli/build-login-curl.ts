@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { litSign, md5hex, stsSign } from '../crypto/litsign.ts';
 import { encodeShadow } from '../crypto/shadow.ts';
+import { siua } from '../crypto/siua.ts';
 
 const KINDS = ['google', 'facebook', 'tiktok', 'sms', 'phone', 'email'] as const;
 type Kind = typeof KINDS[number];
@@ -80,6 +81,7 @@ const lines = [
   H('X-request-Id', xReqId),
   H('X-Application-Info', xAppInfo),
   H('X-DFPID', DFPID),
+  H('X-SIUA', opt.siua || process.env.X_SIUA || siua()),
   H('fingerprint', fingerprint),
   H('v-mode', '0'),
   `  --data '${bodyStr}'`,

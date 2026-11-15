@@ -47,9 +47,10 @@ pub struct Account {
     pub user_id: Option<String>,
     pub device_uuid: String,
     pub version: String,
-    /// Device tokens captured from the real device (optional request headers).
+    /// Legacy saved token, retained for storage compatibility; requests generate fresh SIUA.
     #[serde(default)]
     pub siua: Option<String>,
+    /// Server-issued device token, sent as X-DFPID when present.
     #[serde(default)]
     pub dfpid: Option<String>,
     pub created_at: u64,

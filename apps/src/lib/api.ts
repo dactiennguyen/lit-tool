@@ -7,7 +7,6 @@ export interface Account {
   userId: string | null;
   deviceUuid: string;
   version: string;
-  siua: string | null;
   dfpid: string | null;
   createdAt: number;
   sessionSavedAt: number | null;
@@ -97,19 +96,15 @@ export interface ServersReport {
 
 export interface NewAccount {
   label: string;
-  userId: string | null;
   deviceUuid: string;
   version: string;
-  siua: string | null;
   dfpid: string | null;
   sid: string;
 }
 
 export interface AccountPatch {
   label?: string;
-  userId?: string | null;
   version?: string;
-  siua?: string | null;
   dfpid?: string | null;
   sid?: string;
 }

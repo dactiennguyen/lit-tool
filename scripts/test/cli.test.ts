@@ -5,7 +5,7 @@ import path from 'node:path';
 import { after, describe, test } from 'node:test';
 import { HX_ENV, HX_APP_KEY, HX_USERNAME, LIT_ENV, runNode, withLitServer, type CliResult } from './helpers.ts';
 import { encodeShadow } from '../src/crypto/shadow.ts';
-import { encodeSiua, buildPlaintext } from '../src/crypto/siua.ts';
+import { encodeSiua, buildPlaintext, decodeSiua, SCAN_CLEAN } from '../src/crypto/siua.ts';
 import { encodeEye } from '../src/crypto/eye.ts';
 import { litSign } from '../src/crypto/litsign.ts';
 
@@ -161,24 +161,58 @@ describe('crypto tool CLIs', () => {
     const config = path.join(tmp, 'login.json');
     fs.writeFileSync(config, JSON.stringify({ query: { loc: 'VN', uuid: 'u', version: '7.77.0', lang: 'vi', platform: 'android',
       model: 'M', loctype: '0', os: '33', net_type: 'wifi', app_source: 'litmatch', appid: '<placeholder>' } }));
-    await expectSame('login-google', ['--help']);
-    await expectSame('login-google', ['--config']);
+    for (const args of [['--help'], ['--config']]) {
+      const { mine, theirs } = await both('login-google', args);
+      assert.deepEqual(mine, {
+        ...theirs,
+        stdout: theirs.stdout.replace('X_SIUA=...', '[X_SIUA=...]'),
+        stderr: theirs.stderr.replace('X_SIUA=...', '[X_SIUA=...]'),
+      });
+    }
     await expectSame('login-google', ['--config', config]);
-    await expectSame('login-google', ['--config', path.join(tmp, 'missing.json')].slice(0, 2));
+    await expectSame('login-google', ['--config', path.join(tmp, 'missing.json')]);
   });
 
   test('build-login-curl: invalid kind', () => same('build_login_curl', ['nope']));
 
+  test('login-google attaches default or explicit SIUA without a real login', async () => {
+    const config = path.join(tmp, 'login-siua.json');
+    fs.writeFileSync(config, JSON.stringify({ query: { loc: 'VN', uuid: 'u', version: '7.77.0', lang: 'vi', platform: 'android',
+      model: 'M', loctype: '0', os: '33', net_type: 'wifi', app_source: 'litmatch', appid: 'test' } }));
+    const preload = path.join(tmp, 'capture-https.mjs');
+    fs.writeFileSync(preload, `import https from 'node:https';
+import { EventEmitter } from 'node:events';
+https.request = options => {
+  const request = new EventEmitter();
+  request.end = () => console.log(JSON.stringify({ siua: options.headers['X-SIUA'] }));
+  return request;
+};
+`);
+    for (const override of ['', 'EXPLICIT-SIUA']) {
+      const out = await runNode(['--import', preload, 'src/cli/login-google.ts', '--config', config], {
+        GOOGLE_ID_TOKEN: 'test-google-token', X_DFPID: 'test-dfp', X_SIUA: override,
+      });
+      assert.equal(out.code, 0, out.stderr);
+      const token: string = JSON.parse(out.stdout).siua;
+      if (override) assert.equal(token, override);
+      else assert.equal(decodeSiua(token).split('}}')[2], SCAN_CLEAN);
+    }
+  });
+
   test('build-login-curl: same structure; signatures valid for their own time', async () => {
     const args = ['phone', '--phone', '912345678', '--zone', '84', '--code', '123456', '--dfpid', 'DFP'];
-    const { mine, theirs } = await both('build_login_curl', args);
+    const { mine, theirs } = await both('build_login_curl', args, { X_SIUA: '' });
     const mask = (s: string) => s
       .replace(/litTime=\d+|ts=\d+/g, m => m.replace(/\d+/, 'N'))
       .replace(/(litTS=|litNO=)[^&']+/g, '$1X')
       .replace(/(-H '(?:ts|litTime|litSign|sts-sign|X-request-Id|X-Application-Info): )[^']+/g, '$1X')
       .replace(/ký lúc [^ ]+/, 'ký lúc T');
     assert.equal(mine.code, 0);
-    assert.equal(mask(mine.stdout), mask(theirs.stdout));
+    const siuaHeader = mine.stdout.split('\n').find(line => line.includes("-H 'X-SIUA: "));
+    assert.ok(siuaHeader);
+    const token = siuaHeader.match(/X-SIUA: ([^']+)/)![1]!;
+    assert.equal(decodeSiua(token).split('}}')[2], SCAN_CLEAN);
+    assert.equal(mask(mine.stdout.split('\n').filter(line => line !== siuaHeader).join('\n')), mask(theirs.stdout));
     const litTime = mine.stdout.match(/-H 'litTime: (\d+)'/)![1]!;
     assert.ok(mine.stdout.includes(`-H 'litSign: ${litSign(litTime)}'`));
   });

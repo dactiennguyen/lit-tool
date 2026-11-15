@@ -32,10 +32,8 @@ export function checkBaseUrl(raw: string): { ok: true; value: string } | { ok: f
 
 export interface AccountFormValues {
   label: string;
-  userId: string;
   deviceUuid: string;
   version: string;
-  siua: string;
   dfpid: string;
   sid: string;
 }
@@ -47,9 +45,6 @@ export function validateAccountForm(v: AccountFormValues, opts: { sidRequired: b
   const label = v.label.trim();
   if (!label || charCount(label) > 64) errors.label = "Nhập tên từ 1 đến 64 ký tự";
 
-  const userId = v.userId.trim();
-  if (userId && (!TOKEN.test(userId) || userId.length > 128)) errors.userId = "Chỉ gồm chữ, số, _ và -";
-
   const device = v.deviceUuid.trim();
   if (!device) errors.deviceUuid = "Bắt buộc";
   else if (!TOKEN.test(device) || device.length > 128) errors.deviceUuid = "Chỉ gồm chữ, số, _ và - (tối đa 128)";
@@ -57,10 +52,8 @@ export function validateAccountForm(v: AccountFormValues, opts: { sidRequired: b
   const version = v.version.trim();
   if (!version || !VERSION.test(version) || version.length > 64) errors.version = "Ví dụ: 7.77.0";
 
-  for (const key of ["siua", "dfpid"] as const) {
-    const t = v[key].trim();
-    if (t && !DEVICE_TOKEN.test(t)) errors[key] = "Chỉ gồm chữ, số và + / = _ - (tối đa 512)";
-  }
+  const dfpid = v.dfpid.trim();
+  if (dfpid && !DEVICE_TOKEN.test(dfpid)) errors.dfpid = "Chỉ gồm chữ, số và + / = _ - (tối đa 512)";
 
   const sid = v.sid.trim();
   if (opts.sidRequired && !sid) errors.sid = "Bắt buộc";

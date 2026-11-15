@@ -16,10 +16,8 @@ describe("checkBaseUrl", () => {
 
 const valid: AccountFormValues = {
   label: "Acc chính",
-  userId: "",
   deviceUuid: "abc_123-XYZ",
   version: "7.77.0",
-  siua: "",
   dfpid: "",
   sid: "some-session",
 };
@@ -31,10 +29,10 @@ describe("validateAccountForm", () => {
 
   it("flags each bad field", () => {
     const errors = validateAccountForm(
-      { label: "  ", userId: "a b", deviceUuid: "x/y", version: "7 7", siua: "a b", dfpid: "x<y", sid: "" },
+      { label: "  ", deviceUuid: "x/y", version: "7 7", dfpid: "x<y", sid: "" },
       { sidRequired: true },
     );
-    expect(Object.keys(errors).sort()).toEqual(["deviceUuid", "dfpid", "label", "sid", "siua", "userId", "version"]);
+    expect(Object.keys(errors).sort()).toEqual(["deviceUuid", "dfpid", "label", "sid", "version"]);
   });
 
   it("allows empty sid when editing", () => {

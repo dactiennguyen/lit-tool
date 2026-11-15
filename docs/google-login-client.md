@@ -20,10 +20,14 @@ Các JSON trong `docs/data`:
   Node đã xử lý, còn response khóa là dữ liệu app đã xử lý; cả hai không nhất
   thiết là body thô trên mạng.
 
-Cần Node.js 18 trở lên và cài dependency trong `scripts` bằng `npm install`.
+Cần Node.js 22.18 trở lên và cài dependency trong `scripts` bằng `npm install`.
 Sao chép cấu hình đến một file riêng ngoài Git và cập nhật theo phiên thực tế,
-rồi cung cấp `GOOGLE_ID_TOKEN`, `X_DFPID` và `X_SIUA` bằng biến môi
-trường. Các giá trị này là thông tin nhạy cảm và có trong request đầy đủ đã
+rồi cung cấp `GOOGLE_ID_TOKEN`, `X_DFPID` bằng biến môi trường.
+`X_SIUA` là tùy chọn: nếu không có hoặc rỗng, script gọi hàm `siua()` dùng
+chung để tạo token mới và gắn header. Token mặc định chứa timestamp hiện tại,
+UUID ngẫu nhiên và `SCAN_CLEAN` cố định, không phải scan thiết bị thực.
+Nếu cung cấp `X_SIUA`, script gửi nguyên giá trị đó. Các giá trị này là
+thông tin nhạy cảm và có trong request đầy đủ đã
 lưu. Sau đó chạy:
 
 ```sh
@@ -38,7 +42,7 @@ response thành công có thể chứa session.
 `clockOffsetMs` là chênh lệch so với giờ máy, mặc định 0; app dùng giờ đã đồng
 bộ server. `litSignFlag` mặc định `1` và cần phù hợp với trạng thái app thực.
 Có thể thêm `userAgent` vào config khi biết giá trị của app. Script không sinh
-`X-DFPID` hay `X-SIUA`, không tự lấy Google ID token; trên terminal nó chỉ in
+`X-DFPID`, không tự lấy Google ID token; trên terminal nó chỉ in
 một số trường kết quả. HTTP 200 không đồng nghĩa đăng nhập
 thành công. Tài liệu chi tiết về hai response nằm ở
 [13-google-login-hai-truong-hop.md](13-google-login-hai-truong-hop.md).

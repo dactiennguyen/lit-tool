@@ -5,9 +5,10 @@ import { errorMessage, readJson } from '../core/cli.ts';
 import { isPlainObject, requireValue } from '../core/validate.ts';
 import { isSignFlag, litSign, stsSign } from '../crypto/litsign.ts';
 import { decodeShadow, encodeShadow } from '../crypto/shadow.ts';
+import { siua as createSiua } from '../crypto/siua.ts';
 
 const KEYS = ['loc', 'uuid', 'version', 'lang', 'platform', 'model', 'loctype', 'os', 'net_type', 'app_source', 'appid'] as const;
-const USAGE = 'Usage: GOOGLE_ID_TOKEN=... X_DFPID=... X_SIUA=... node src/cli/login-google.ts --config /path/to/config.json [--response-json /private/path.json]';
+const USAGE = 'Usage: GOOGLE_ID_TOKEN=... X_DFPID=... [X_SIUA=...] node src/cli/login-google.ts --config /path/to/config.json [--response-json /private/path.json]';
 const MAX_RESPONSE = 1024 * 1024;
 
 interface LoginConfig {
@@ -30,7 +31,7 @@ function main(): void {
   const uuid = config.query.uuid as string;
   const token = requireValue(process.env.GOOGLE_ID_TOKEN, 'GOOGLE_ID_TOKEN');
   const dfpid = requireValue(process.env.X_DFPID, 'X_DFPID');
-  const siua = requireValue(process.env.X_SIUA, 'X_SIUA');
+  const siua = process.env.X_SIUA || createSiua();
   const flag = config.litSignFlag === undefined ? '1' : config.litSignFlag;
   if (!isSignFlag(flag)) throw new Error('litSignFlag must be "0", "1", or "2"');
   const offset = config.clockOffsetMs === undefined ? 0 : config.clockOffsetMs;

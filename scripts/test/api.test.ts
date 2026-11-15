@@ -4,8 +4,9 @@ import { decodeLitResponse, getAccountInfo, getOnlineUsers, getUserInfo, getUser
 import { litResponse, PROFILE, withFetch } from './helpers.ts';
 import sample from './fixtures/user-info-me.example.json' with { type: 'json' };
 import type { LitApiResponse, OnlineUsersData, UserInfo, UserInfoMe, Wallet } from '../src/lit/types.ts';
+import { decodeSiua, SCAN_CLEAN } from '../src/crypto/siua.ts';
 
-test('typed self profile uses me without an ID and preserves real SIUA only', async () => {
+test('typed self profile uses me without an ID and defaults to generated SIUA', async () => {
   for (const siua of [undefined, PROFILE.siua]) {
     const { result, calls } = await withFetch(req => litResponse(req, sample), async () => {
       const response = await getUserMe({ profile: { ...PROFILE, userId: undefined, siua } });
@@ -24,7 +25,8 @@ test('typed self profile uses me without an ID and preserves real SIUA only', as
     assert.equal(url.searchParams.get('from'), 'me');
     assert.equal(url.searchParams.get('source'), 'me');
     assert.equal(req.headers['lit-user-id'], undefined);
-    assert.equal(req.headers['x-siua'], siua);
+    if (siua) assert.equal(req.headers['x-siua'], siua);
+    else assert.equal(decodeSiua(req.headers['x-siua']!).split('}}')[2], SCAN_CLEAN);
   }
 });
 
