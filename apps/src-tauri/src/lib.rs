@@ -13,6 +13,7 @@ mod msync;
 mod settings;
 mod siua;
 mod store;
+mod transfer;
 mod update;
 
 use tauri::Manager;
@@ -25,6 +26,7 @@ use settings::SettingsStore;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update::Updates::default())
         .setup(|app| {
@@ -48,6 +50,8 @@ pub fn run() {
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,
+            transfer::accounts_export,
+            transfer::accounts_import,
             chat::hx_probe_servers,
             accounts::accounts_recovered_backup,
             settings::settings_get,

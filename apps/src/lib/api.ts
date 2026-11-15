@@ -39,6 +39,19 @@ export type LiveState =
   /** `message` null: stopped by the user. */
   | { state: "stopped"; at: number; message: string | null };
 
+/** `accounts_export`: accounts written to the file, and those left out for lack of a sid. */
+export interface ExportReport {
+  exported: number;
+  skipped: string[];
+}
+
+/** `accounts_import`: labels added, skipped (device UUID already here) and failed with the reason. */
+export interface ImportReport {
+  added: string[];
+  skipped: string[];
+  failed: [string, string][];
+}
+
 /** "hx-status" event payload. */
 export type LiveStatusEvent = { accountId: string } & LiveState;
 
@@ -201,6 +214,10 @@ export const api = {
     update: (id: string, patch: AccountPatch) => call<Account>("accounts_update", { id, patch }),
     remove: (id: string) => call<void>("accounts_remove", { id }),
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
+    /** Writes every account with its sid and IM login to `path`, encrypted with `password`. */
+    export: (path: string, password: string) => call<ExportReport>("accounts_export", { path, password }),
+    /** Adds the accounts of the file at `path` whose device UUID is new here. */
+    import: (path: string, password: string) => call<ImportReport>("accounts_import", { path, password }),
   },
   hx: {
     /**

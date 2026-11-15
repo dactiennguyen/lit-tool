@@ -257,6 +257,12 @@ export const useUpdateAccount = () =>
 
 export const useRemoveAccount = () => useAccountsMutation((account: Account) => api.accounts.remove(account.id));
 
+export const useImportAccounts = () =>
+  useAccountsMutation(({ path, password }: { path: string; password: string }) => api.accounts.import(path, password));
+
+export const useExportAccounts = () =>
+  useMutation({ mutationFn: ({ path, password }: { path: string; password: string }) => api.accounts.export(path, password) });
+
 /** Opens the live connection; its state is kept in tcp-status. */
 export const useConnectTcp = () => useMutation({ mutationFn: connectTcp });
 

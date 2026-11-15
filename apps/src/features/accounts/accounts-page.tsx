@@ -3,12 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangleIcon,
   ArrowRightIcon,
+  DownloadIcon,
   LogInIcon,
   LogOutIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   Trash2Icon,
+  UploadIcon,
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,6 +42,7 @@ import type { Account } from "@/lib/api";
 import { useLogin, useSessions } from "@/lib/sessions";
 import { useAccounts, useRecoveredBackup, useRemoveAccount } from "@/lib/queries";
 import { AccountFormDialog } from "./account-form-dialog";
+import { ExportDialog, ImportDialog } from "./transfer-dialogs";
 
 const dateFmt = new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" });
 
@@ -50,6 +53,10 @@ export function AccountsPage() {
   const [formKey, setFormKey] = useState(0);
   const [editing, setEditing] = useState<Account | null>(null);
   const [removing, setRemoving] = useState<Account | null>(null);
+  // `key` changes on each open, so a dialog starts empty (no password kept from last time).
+  const [transfer, setTransfer] = useState({ kind: "import" as "import" | "export", key: 0, open: false });
+  const openTransfer = (kind: "import" | "export") => setTransfer((t) => ({ kind, key: t.key + 1, open: true }));
+  const setTransferOpen = (open: boolean) => setTransfer((t) => ({ ...t, open }));
 
   const openForm = (a: Account | null) => {
     setEditing(a);
@@ -65,10 +72,20 @@ export function AccountsPage() {
         title="Tài khoản"
         description={accounts ? `${accounts.length} account` : undefined}
         actions={
-          <Button onClick={openAdd}>
-            <PlusIcon aria-hidden />
-            Thêm account
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => openTransfer("import")}>
+              <UploadIcon aria-hidden />
+              Import
+            </Button>
+            <Button variant="outline" disabled={!accounts?.length} onClick={() => openTransfer("export")}>
+              <DownloadIcon aria-hidden />
+              Export
+            </Button>
+            <Button onClick={openAdd}>
+              <PlusIcon aria-hidden />
+              Thêm account
+            </Button>
+          </div>
         }
       />
 
@@ -120,6 +137,11 @@ export function AccountsPage() {
       <AccountFormDialog key={formKey} open={formOpen} onOpenChange={setFormOpen}
         account={editing ? accounts?.find((a) => a.id === editing.id) ?? editing : null} />
       <RemoveAccountDialog account={removing} onClose={() => setRemoving(null)} />
+      {transfer.kind === "import" ? (
+        <ImportDialog key={transfer.key} open={transfer.open} onOpenChange={setTransferOpen} />
+      ) : (
+        <ExportDialog key={transfer.key} open={transfer.open} onOpenChange={setTransferOpen} count={accounts?.length ?? 0} />
+      )}
     </>
   );
 }
