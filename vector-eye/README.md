@@ -1,5 +1,42 @@
 # Module Vector thử nghiệm Eye
 
+## Eye 0.3: điều khiển Hide My Device
+
+Eye điều khiển cấu hình Hide My Device cho **Litmatch / Android user 10**.
+Hide My Device vẫn là module áp dụng hook; cần bật trong Vector và chỉ chọn
+`com.litatom.app/10` trong phạm vi của module. Cấp quyền root cho Eye ở user 10
+trong trình quản lý root của máy (APatch/KernelSU/Magisk), rồi mở lại Eye.
+Với APatch, `su` có thể không xuất hiện trong ứng dụng chưa được cấp quyền.
+
+1. Bấm **Đọc cấu hình thiết bị** để đọc cấu hình đang lưu trong Vector.
+2. **Đổi thông tin · giữ UUID** tạo lại 17 trường và giữ Android ID hiện tại.
+   Litmatch được đóng trước khi ghi; dữ liệu đăng nhập không bị xóa.
+3. **Xóa dữ liệu Litmatch và đổi thiết bị** yêu cầu xác nhận, xóa toàn bộ dữ liệu
+   Litmatch user 10 và tạo cả Android ID mới. Phải đăng nhập lại sau đó.
+   Thao tác này không xóa tài khoản Google khỏi Android.
+4. Mở lại Litmatch, quay lại Eye và bấm **Kiểm tra thiết bị trong Litmatch**.
+   Eye đọc giá trị thực tế từ tiến trình Litmatch và so sánh Android ID, brand,
+   manufacturer, model với cấu hình. Có thêm DRM và các trường Build để xem.
+
+Hỗ trợ 18 trường của Hide My Device: IMEI, serial, Android ID, advertising ID,
+DRM, brand, manufacturer, model, Wi-Fi MAC, BSSID, SSID, Bluetooth MAC,
+SIM serial, subscriber ID, số điện thoại, mã/tên/quốc gia nhà mạng.
+`device/product/board/hardware` vẫn là giá trị gốc vì Hide My Device chưa hook
+các trường này. Đổi cấu hình không chứng minh server sẽ chấp nhận thiết bị.
+
+Eye ghi cả bản cấu hình Vector và bản SharedPreferences của Hide My Device,
+giữ quyền file/owner/SELinux, kiểm tra SHA-256 để từ chối ghi đè cấu hình vừa
+đổi. Nếu ghi hoặc xóa thất bại, khôi phục hai bản cấu hình. Nếu khôi phục cũng
+thất bại, giữ bản sao `.eye-*.backup` cạnh `ids.xml` và khóa
+`/data/local/tmp/eye-device-control-10.lock` để không ghi tiếp trước khi sửa.
+Việc xóa dữ liệu Litmatch đã thành công không thể hoàn tác bằng bản sao cấu hình.
+
+Kiểm tra giao dịch trên Android bằng `DeviceControlSelfTest` trong APK test:
+các file đều ở thư mục tạm riêng; lệnh `am`, `pm`, `chcon` được giả lập, không
+đóng/xóa app thật. Bao gồm UUID, XML, phạm vi module, cập nhật, xóa, cấu hình
+cũ, khóa đồng thời, lỗi ghi và lỗi khôi phục. Lượt này kiểm tra giao dịch file,
+không thay thế kiểm chứng quyền root/SELinux và giá trị hook trong app thật.
+
 ## Eye 0.2: ứng dụng xem và copy JSON tài khoản
 
 Eye có biểu tượng launcher và màn hình riêng trên **Android user 10**.

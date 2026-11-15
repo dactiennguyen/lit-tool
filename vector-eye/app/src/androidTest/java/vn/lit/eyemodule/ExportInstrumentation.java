@@ -14,10 +14,32 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
 public final class ExportInstrumentation extends Instrumentation {
-    @Override public void onCreate(Bundle args) { super.onCreate(args); start(); }
+    private boolean exportOnly;
+    @Override public void onCreate(Bundle args) { super.onCreate(args); exportOnly = args != null && "true".equals(args.getString("exportOnly")); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            if (exportOnly) {
+                java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+                AtomicReference<String> exported = new AtomicReference<>();
+                Intent request = new Intent(AccountBridge.ACTION).setPackage("com.litatom.app");
+                request.putExtra("reply", new android.os.ResultReceiver(new android.os.Handler(android.os.Looper.getMainLooper())) {
+                    @Override protected void onReceiveResult(int code, Bundle data) {
+                        if (code == 0) exported.set(data.getString("json"));
+                        done.countDown();
+                    }
+                });
+                getTargetContext().sendBroadcast(request);
+                check(done.await(12, java.util.concurrent.TimeUnit.SECONDS) && exported.get() != null, "Current account export unavailable");
+                JSONObject current = new JSONObject(exported.get());
+                check(current.getInt("androidUser") == 10, "Wrong user");
+                try (java.io.FileOutputStream file = getTargetContext().openFileOutput("current-account-export.json", Context.MODE_PRIVATE)) {
+                    file.write(exported.get().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                result.putString("result", "PASS: current account exported to app-private file");
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
             try (android.os.ParcelFileDescriptor fd = getUiAutomation().executeShellCommand(
                     "am start --user 10 -n com.litatom.app/.DefaultLauncherAlias")) {
                 try (java.io.FileInputStream in = new java.io.FileInputStream(fd.getFileDescriptor())) {

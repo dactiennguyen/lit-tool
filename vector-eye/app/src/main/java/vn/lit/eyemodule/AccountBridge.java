@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AccountBridge {
     static final String ACTION = "vn.lit.eyemodule.EXPORT_ACCOUNT";
+    static final String DEVICE_ACTION = "vn.lit.eyemodule.READ_DEVICE";
     static final String PERMISSION = "vn.lit.eyemodule.permission.EXPORT_ACCOUNT";
     private static final AtomicBoolean started = new AtomicBoolean();
 
@@ -44,12 +45,12 @@ public final class AccountBridge {
     private static void register(Context context) {
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent intent) {
-                if (!ACTION.equals(intent.getAction())) return;
+                if (!ACTION.equals(intent.getAction()) && !DEVICE_ACTION.equals(intent.getAction())) return;
                 ResultReceiver reply = intent.getParcelableExtra("reply");
                 if (reply == null) return;
                 Bundle result = new Bundle();
                 try {
-                    String json = AccountReader.read(c).toString(2);
+                    String json = (DEVICE_ACTION.equals(intent.getAction()) ? DeviceReport.read(c) : AccountReader.read(c)).toString(2);
                     if (json.length() > 180000) throw new IllegalStateException("Dữ liệu vượt giới hạn xuất JSON.");
                     result.putString("json", json);
                     reply.send(0, result);
@@ -61,6 +62,7 @@ public final class AccountBridge {
             }
         };
         IntentFilter filter = new IntentFilter(ACTION);
+        filter.addAction(DEVICE_ACTION);
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, PERMISSION, null, Context.RECEIVER_EXPORTED);
         else context.registerReceiver(receiver, filter, PERMISSION, null);
         Log.i("VectorEye", "Account export ready");
