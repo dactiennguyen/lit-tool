@@ -81,6 +81,27 @@ npm run dfpid -- --input accounts/dfpid-random.json --output accounts/dfpid-refr
 
 Không truyền `--random` thì giữ hành vi lấy DFPID từ dữ liệu có sẵn.
 
+## Trong app Tauri
+
+Form thêm/sửa account có **Tạo thiết bị mới** (random từ mẫu 198 trường)
+và **Làm mới DFPID** (giữ JSON của thiết bị hiện tại). Rust thực hiện nén,
+mã hóa và gọi `/eye` trực tiếp, không cần Node hoặc ADB trên máy chạy app.
+Mẫu `scripts/devices_info.json` được nhúng lúc build; sửa mẫu thì cần build lại.
+
+Kết quả là bản nháp tới khi bấm Lưu. JSON, UUID, model, version, DFPID và hạn
+dùng được lưu cùng account trong một transaction của `sky.db` (schema v3,
+tự nâng cấp từ v1/v2). Hủy hoặc lỗi API không đổi thiết bị đã lưu. Request
+Litmatch dùng UUID/model/token của account; đổi UUID sẽ dừng kết nối chat
+cũ. Bản này làm mới DFPID bằng nút bấm, chưa tự làm mới khi token hết hạn.
+
+Kiểm tra gọi Eye thực tế bằng Rust (chỉ chạy khi có config được phép sử dụng):
+
+```sh
+LIT_DFPID_SMOKE_INPUT=/duong/dan/config.json cargo test --manifest-path apps/src-tauri/Cargo.toml dfpid::tests::live_eye_issues_token_for_rust_payload -- --ignored
+```
+
+## Script Eye chi tiết
+
 `scripts/eye-device.js` đọc snapshot JSON `LitEye.detect()` của bản Litmatch
 đã khảo sát, sao chép các trường rồi thay các khóa trong file overrides. Tên
 khóa phải có trong snapshot và giá trị thay phải cùng kiểu với giá trị gốc;

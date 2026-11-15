@@ -8,6 +8,7 @@ export interface Account {
   deviceUuid: string;
   version: string;
   dfpid: string | null;
+  device?: DeviceSetup | null;
   createdAt: number;
   sessionSavedAt: number | null;
   /** IM identity saved from the profile at login; the password stays in the keychain. */
@@ -100,6 +101,7 @@ export interface NewAccount {
   version: string;
   dfpid: string | null;
   sid: string;
+  device?: DeviceSetup;
 }
 
 export interface AccountPatch {
@@ -107,6 +109,24 @@ export interface AccountPatch {
   version?: string;
   dfpid?: string | null;
   sid?: string;
+  device?: DeviceSetup;
+}
+
+export interface DeviceSetup {
+  deviceUuid: string;
+  dfpId: string;
+  version: string;
+  exp: number;
+  ver: string;
+  fields: Record<string, string | number | boolean>;
+}
+
+export interface DeviceRequest {
+  accountId?: string;
+  sid?: string;
+  version: string;
+  fields?: DeviceSetup["fields"];
+  random: boolean;
 }
 
 export interface AppSettings {
@@ -157,6 +177,9 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 }
 
 export const api = {
+  device: {
+    generate: (input: DeviceRequest) => call<DeviceSetup>("device_generate", { input }),
+  },
   accounts: {
     list: () => call<Account[]>("accounts_list"),
     add: (input: NewAccount) => call<Account>("accounts_add", { input }),

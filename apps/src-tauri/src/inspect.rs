@@ -17,7 +17,7 @@ const MAX_DEPTH: usize = 12;
 /// Whether a field, parameter or header of this name holds a secret.
 pub fn is_secret(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    n == "x-application-info"
+    n == "x-application-info" || n.contains("dfpid") || n.contains("siua")
         || ["sid", "sign", "token", "password", "pwd", "secret", "session", "auth", "cookie"].iter().any(|s| n.contains(s))
 }
 
@@ -140,7 +140,7 @@ mod tests {
             assert!(!text.contains(secret), "{secret} in {text}");
         }
         assert!(text.contains("Lan") && text.contains("3600") && text.contains("\"5\""));
-        for header in ["Authorization", "litSign", "sts-sign", "X-Application-Info", "Cookie"] {
+        for header in ["Authorization", "litSign", "sts-sign", "X-Application-Info", "Cookie", "X-DFPID", "dfpId", "X-SIUA"] {
             assert!(is_secret(header), "{header}");
         }
         for name in ["accept", "X-request-Id", "uuid", "num", "app_key"] {

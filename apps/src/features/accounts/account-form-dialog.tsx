@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Account } from "@/lib/api";
+import { api, type Account, type DeviceSetup } from "@/lib/api";
 import { useAddAccount, useUpdateAccount } from "@/lib/queries";
 import { validateAccountForm, type AccountFormErrors, type AccountFormValues } from "@/lib/validation";
 
@@ -36,10 +36,12 @@ export function AccountFormDialog({
   const [values, setValues] = useState(() => initialValues(account));
   const [errors, setErrors] = useState<AccountFormErrors>({});
   const [showSid, setShowSid] = useState(false);
+  const [device, setDevice] = useState<DeviceSetup | null>(account?.device ?? null);
+  const [generating, setGenerating] = useState(false);
   const add = useAddAccount();
   const update = useUpdateAccount();
   const navigate = useNavigate();
-  const pending = add.isPending || update.isPending;
+  const pending = add.isPending || update.isPending || generating;
 
   const set = (key: keyof AccountFormValues) => (value: string) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -48,7 +50,10 @@ export function AccountFormDialog({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (pending) return;
     const found = validateAccountForm(values, { sidRequired: !isEdit });
+    if (device && device.version !== values.version.trim()) found.version = "Làm mới DFPID sau khi đổi version";
+    if (device && device.exp <= Date.now()) found.dfpid = "DFPID đã hết hạn, hãy làm mới";
     setErrors(found);
     if (Object.keys(found).length) return;
 
@@ -58,7 +63,7 @@ export function AccountFormDialog({
       if (account) {
         await update.mutateAsync({
           id: account.id,
-          patch: { label: values.label, version: values.version, dfpid, ...(sid ? { sid } : {}) },
+          patch: { label: values.label, version: values.version, dfpid, ...(sid ? { sid } : {}), ...(device ? { device } : {}) },
         });
         toast.success("Đã lưu thay đổi");
       } else {
@@ -68,6 +73,7 @@ export function AccountFormDialog({
           version: values.version,
           dfpid,
           sid,
+          ...(device ? { device } : {}),
         });
         void navigate({ to: "/account/$accountId", params: { accountId: created.id } });
         toast.success(`Đã thêm ${created.label}`);
@@ -75,6 +81,25 @@ export function AccountFormDialog({
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Không lưu được account");
+    }
+  }
+
+  async function generateDevice(random: boolean) {
+    if (pending) return;
+    setGenerating(true);
+    try {
+      const result = await api.device.generate({
+        accountId: account?.id, sid: values.sid.trim() || undefined, version: values.version,
+        fields: device?.fields, random,
+      });
+      setDevice(result);
+      setValues((v) => ({ ...v, deviceUuid: result.deviceUuid, dfpid: result.dfpId, version: result.version }));
+      setErrors((e) => ({ ...e, deviceUuid: undefined, dfpid: undefined, version: undefined }));
+      toast.success(random ? "Đã tạo thiết bị và lấy DFPID. Bấm Lưu để áp dụng." : "Đã làm mới DFPID. Bấm Lưu để áp dụng.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Không lấy được DFPID");
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -89,104 +114,119 @@ export function AccountFormDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <Field label="Tên hiển thị" error={errors.label}>
-            {(id, describedBy) => (
-              <Input
-                id={id}
-                autoFocus
-                value={values.label}
-                onChange={(e) => set("label")(e.target.value)}
-                placeholder="Ví dụ: Acc chính"
-                aria-invalid={!!errors.label}
-                aria-describedby={describedBy}
-              />
-            )}
-          </Field>
-
-          <Field label="Version app" error={errors.version}>
-            {(id, describedBy) => (
-              <Input
-                id={id}
-                value={values.version}
-                onChange={(e) => set("version")(e.target.value)}
-                className="font-mono"
-                aria-invalid={!!errors.version}
-                aria-describedby={describedBy}
-              />
-            )}
-          </Field>
-
-          <Field
-            label="Device UUID"
-            hint={isEdit ? "Không đổi được sau khi tạo" : undefined}
-            error={errors.deviceUuid}
-          >
-            {(id, describedBy) => (
-              <Input
-                id={id}
-                value={values.deviceUuid}
-                onChange={(e) => set("deviceUuid")(e.target.value)}
-                disabled={isEdit}
-                spellCheck={false}
-                className="font-mono"
-                aria-invalid={!!errors.deviceUuid}
-                aria-describedby={describedBy}
-              />
-            )}
-          </Field>
-
-          <Field
-            label="Session (sid)"
-            hint={isEdit ? "Để trống nếu không đổi" : undefined}
-            error={errors.sid}
-          >
-            {(id, describedBy) => (
-              <div className="relative">
-                <Input
-                  id={id}
-                  type={showSid ? "text" : "password"}
-                  value={values.sid}
-                  onChange={(e) => set("sid")(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="pr-9 font-mono"
-                  aria-invalid={!!errors.sid}
-                  aria-describedby={describedBy}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="absolute top-1/2 right-0.5 -translate-y-1/2"
-                  onClick={() => setShowSid((s) => !s)}
-                  aria-label={showSid ? "Ẩn session" : "Hiện session"}
-                  aria-pressed={showSid}
-                >
-                  {showSid ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
-                </Button>
-              </div>
-            )}
-          </Field>
-
-          <fieldset className="grid gap-3 rounded-lg border p-3">
-            <legend className="px-1 text-xs text-muted-foreground">Token thiết bị (không bắt buộc)</legend>
-            <p className="-mt-1 text-xs text-muted-foreground">
-              Giá trị thật lấy từ máy đã đăng nhập. Để trống thì app không gửi header X-DFPID.
-            </p>
-            <Field label="DFPID" error={errors.dfpid}>
+          <fieldset disabled={pending} className="grid min-w-0 gap-4">
+            <Field label="Tên hiển thị" error={errors.label}>
               {(id, describedBy) => (
                 <Input
                   id={id}
-                  value={values.dfpid}
-                  onChange={(e) => set("dfpid")(e.target.value)}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="font-mono"
-                  aria-invalid={!!errors.dfpid}
+                  autoFocus
+                  value={values.label}
+                  onChange={(e) => set("label")(e.target.value)}
+                  placeholder="Ví dụ: Acc chính"
+                  aria-invalid={!!errors.label}
                   aria-describedby={describedBy}
                 />
               )}
             </Field>
+
+            <Field label="Version app" error={errors.version}>
+              {(id, describedBy) => (
+                <Input
+                  id={id}
+                  value={values.version}
+                  onChange={(e) => set("version")(e.target.value)}
+                  className="font-mono"
+                  aria-invalid={!!errors.version}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+
+            <Field
+              label="Device UUID"
+              hint={isEdit ? "Dùng Tạo thiết bị mới để đổi UUID cùng DFPID" : undefined}
+              error={errors.deviceUuid}
+            >
+              {(id, describedBy) => (
+                <Input
+                  id={id}
+                  value={values.deviceUuid}
+                  onChange={(e) => set("deviceUuid")(e.target.value)}
+                  disabled={isEdit || !!device}
+                  spellCheck={false}
+                  className="font-mono"
+                  aria-invalid={!!errors.deviceUuid}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+
+            <Field
+              label="Session (sid)"
+              hint={isEdit ? "Để trống nếu không đổi" : undefined}
+              error={errors.sid}
+            >
+              {(id, describedBy) => (
+                <div className="relative">
+                  <Input
+                    id={id}
+                    type={showSid ? "text" : "password"}
+                    value={values.sid}
+                    onChange={(e) => set("sid")(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="pr-9 font-mono"
+                    aria-invalid={!!errors.sid}
+                    aria-describedby={describedBy}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute top-1/2 right-0.5 -translate-y-1/2"
+                    onClick={() => setShowSid((s) => !s)}
+                    aria-label={showSid ? "Ẩn session" : "Hiện session"}
+                    aria-pressed={showSid}
+                  >
+                    {showSid ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
+                  </Button>
+                </div>
+              )}
+            </Field>
+
+            <fieldset className="grid gap-3 rounded-lg border p-3">
+              <legend className="px-1 text-xs text-muted-foreground">Token thiết bị (không bắt buộc)</legend>
+              <p className="-mt-1 text-xs text-muted-foreground">
+                Tạo từ JSON mẫu hoặc nhập DFPID của bạn. Thiết bị mới chỉ được áp dụng khi lưu account.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void generateDevice(true)}>
+                  {generating && <Loader2Icon className="animate-spin" aria-hidden />}
+                  Tạo thiết bị mới
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled={!device} onClick={() => void generateDevice(false)}>
+                  Làm mới DFPID
+                </Button>
+              </div>
+              {device && <p className="text-xs text-muted-foreground" role="status">
+                {String(device.fields.model)} · {Object.keys(device.fields).length} trường · Hết hạn {new Date(device.exp).toLocaleString("vi-VN")}
+              </p>}
+              <Field label="DFPID" error={errors.dfpid}>
+                {(id, describedBy) => (
+                  <Input
+                    id={id}
+                    value={values.dfpid}
+                    readOnly={!!device}
+                    onChange={(e) => set("dfpid")(e.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="font-mono"
+                    aria-invalid={!!errors.dfpid}
+                    aria-describedby={describedBy}
+                  />
+                )}
+              </Field>
+            </fieldset>
           </fieldset>
 
           <DialogFooter>

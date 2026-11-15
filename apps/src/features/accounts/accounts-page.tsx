@@ -103,7 +103,7 @@ export function AccountsPage() {
         <EmptyState
           icon={UsersIcon}
           title="Chưa có account nào"
-          description="Thêm account bằng session (sid) và device UUID lấy từ máy đã đăng nhập."
+          description="Thêm account bằng session (sid). Bạn có thể nhập hoặc tạo thông tin thiết bị trong form."
           action={
             <Button onClick={openAdd}>
               <PlusIcon aria-hidden />

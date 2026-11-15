@@ -1,6 +1,7 @@
 mod accounts;
 mod chat;
 mod db;
+mod dfpid;
 mod http;
 mod hx;
 mod inspect;
@@ -39,6 +40,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             accounts::accounts_list,
+            dfpid::device_generate,
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,

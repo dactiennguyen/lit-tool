@@ -121,6 +121,7 @@ pub struct LitProfile<'a> {
     pub version: &'a str,
     pub user_id: Option<&'a str>,
     pub dfpid: Option<&'a str>,
+    pub model: Option<&'a str>,
     pub base_url: &'a str,
 }
 
@@ -171,7 +172,7 @@ pub fn build_get(
             q.append_pair(k, v);
         }
         for (k, v) in COMMON_QUERY {
-            q.append_pair(k, v);
+            q.append_pair(k, if k == "model" { profile.model.unwrap_or(v) } else { v });
         }
         q.append_pair("uuid", profile.uuid);
         q.append_pair("version", profile.version);
@@ -402,6 +403,7 @@ pub(crate) async fn request_for_account(
         version: &account.version,
         user_id: account.user_id.as_deref(),
         dfpid: account.dfpid.as_deref(),
+        model: account.device.as_ref().map(|d| d.model()),
         base_url: &base_url,
     };
     let request = build(&profile, SignOptions::fresh()?)?;
@@ -570,6 +572,21 @@ mod tests {
     const REQ_ID: &str = "11111111-2222-4333-8444-555555555555";
 
     #[test]
+    fn generated_device_model_is_used_in_url_and_encoded_query() {
+        let profile = LitProfile {
+            sid: "sid-test", uuid: "new-device", version: "7.77.0", user_id: None,
+            dfpid: Some("new-token"), model: Some("Nokia G42 5G"), base_url: "https://www.litatom.com",
+        };
+        let req = build_get("user/get_info/me", &profile, &[], SignOptions::fresh().unwrap()).unwrap();
+        let model: Vec<_> = req.url.query_pairs().filter(|(k, _)| k == "model").collect();
+        assert_eq!(model.len(), 1);
+        assert_eq!(model[0].1, "Nokia G42 5G");
+        let headers: std::collections::HashMap<_, _> = req.headers.iter().cloned().collect();
+        assert_eq!(shadow_decode(&headers["X-Application-Info"]).unwrap(), req.url.query().unwrap());
+        assert_eq!(headers["X-DFPID"], "new-token");
+    }
+
+    #[test]
     fn signatures_match_typescript() {
         assert_eq!(lit_sign(1731415000123), "MXwwMTIyOTE2ZDhlOTM5ZGY4MjA3NGI0MWI1YmE3NmViOQ==");
         assert_eq!(
@@ -588,6 +605,7 @@ mod tests {
             version: "7.77.0",
             user_id: Some("u10"),
             dfpid: Some("DFP1"),
+            model: None,
             base_url: "https://www.litatom.com",
         };
         let req = build_get(
@@ -622,6 +640,7 @@ mod tests {
             version: "7.77.0",
             user_id: Some("u10"),
             dfpid: Some("DFP1"),
+            model: None,
             base_url: "https://www.litatom.com",
         };
         let opts = || SignOptions { now_ms: 1731415000123, request_id: REQ_ID.into(), shadow_iv: IV };
@@ -648,7 +667,7 @@ mod tests {
     #[test]
     fn post_requests_validate_target_and_scheme() {
         let mut profile = LitProfile {
-            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None, base_url: "https://www.litatom.com",
+            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None, model: None, base_url: "https://www.litatom.com",
         };
         for bad in ["", "a b", "../x"] {
             assert!(build_post(MetadataStep::Conversation, bad, &profile, SignOptions::fresh().unwrap()).is_err());
@@ -662,7 +681,7 @@ mod tests {
     #[test]
     fn online_users_request_matches_typescript() {
         let profile = LitProfile {
-            sid: "test-sid", uuid: "dev-uuid-1", version: "7.77.0", user_id: None, dfpid: None,
+            sid: "test-sid", uuid: "dev-uuid-1", version: "7.77.0", user_id: None, dfpid: None, model: None,
             base_url: "https://www.litatom.com",
         };
         let query = online_users_query(15, 15).unwrap();
@@ -689,7 +708,7 @@ mod tests {
         let url = "https://www.litatom.com/api/sns/v1/lit/user/get_info/target-9?app_source=litmatch&appid=NxUUhRSQH3qPJmY2Vn%2FedRz4vrc%3D&lang=vi&loc=US&loctype=0&model=Pixel+8+Pro&net_type=wifi&os=33&uuid=dev-uuid-1&version=7.77.0&platform=android&sid=test-sid";
         let lit_user_id = |own: Option<&str>| {
             let profile = LitProfile {
-                sid: "test-sid", uuid: "dev-uuid-1", version: "7.77.0", user_id: own, dfpid: None,
+                sid: "test-sid", uuid: "dev-uuid-1", version: "7.77.0", user_id: own, dfpid: None, model: None,
                 base_url: "https://www.litatom.com",
             };
             let req = build_user_info(&profile, "target-9", SignOptions::fresh().unwrap()).unwrap();
@@ -704,7 +723,7 @@ mod tests {
     #[test]
     fn user_info_rejects_bad_target_ids() {
         let profile = LitProfile {
-            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None, base_url: "https://www.litatom.com",
+            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None, model: None, base_url: "https://www.litatom.com",
         };
         for bad in ["", "a/b", "../x", "a b", &"x".repeat(129)] {
             assert!(build_user_info(&profile, bad, SignOptions::fresh().unwrap()).is_err(), "{bad}");
@@ -714,7 +733,7 @@ mod tests {
     #[test]
     fn user_info_me_request_puts_from_source_first() {
         let profile = LitProfile {
-            sid: "s", uuid: "u", version: "1", user_id: Some("u10"), dfpid: None,
+            sid: "s", uuid: "u", version: "1", user_id: Some("u10"), dfpid: None, model: None,
             base_url: "https://www.litatom.com",
         };
         let req = build_get("user/get_info/me", &profile, &user_info_me_query(), SignOptions::fresh().unwrap()).unwrap();
@@ -743,7 +762,7 @@ mod tests {
         assert!(feed_query(0, FEED_PAGE_MAX + 1).is_err());
         assert_eq!(feed_query(10, 20).unwrap(), [("start_pos", "10".to_owned()), ("num", "20".to_owned())]);
         let profile = LitProfile {
-            sid: "s", uuid: "u", version: "1", user_id: Some("me"), dfpid: None,
+            sid: "s", uuid: "u", version: "1", user_id: Some("me"), dfpid: None, model: None,
             base_url: "https://www.litatom.com",
         };
         for (kind, path) in [(FeedKind::Trends, "/api/sns/v1/lit/feed/hq"), (FeedKind::Associate, "/api/sns/v1/lit/feed/sep_page_feeds/Associate")] {
@@ -767,6 +786,7 @@ mod tests {
         let profile = LitProfile {
             sid: "test-sid", uuid: "device-id", version: "7.77.0", user_id: Some("me"),
             dfpid: Some("cached-dfpid"), base_url: "https://www.litatom.com",
+            model: None,
         };
         let before = crate::store::now_ms();
         let requests = [
@@ -797,7 +817,7 @@ mod tests {
     fn time_headers_preserve_milliseconds_and_floor_seconds() {
         let profile = LitProfile {
             sid: "test-sid", uuid: "device-id", version: "7.77.0", user_id: None,
-            dfpid: None, base_url: "https://www.litatom.com",
+            dfpid: None, model: None, base_url: "https://www.litatom.com",
         };
         for (now_ms, seconds) in [(1731415000999, "1731415000"), (1731415001000, "1731415001"), (1731415001001, "1731415001")] {
             let request = build_get("account/account_info", &profile, &[], SignOptions {
@@ -819,6 +839,7 @@ mod tests {
         let profile = LitProfile {
             sid: "synthetic-session", uuid: "synthetic-device", version: "7.77.0", user_id: Some("me"),
             dfpid: Some("synthetic-dfpid"), base_url: "https://www.litatom.com",
+            model: None,
         };
         let fresh = SignOptions::fresh().unwrap().now_ms;
         let mut samples = Vec::new();
@@ -851,7 +872,7 @@ mod tests {
     #[test]
     fn optional_headers_are_omitted() {
         let profile = LitProfile {
-            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None,
+            sid: "s", uuid: "u", version: "1", user_id: None, dfpid: None, model: None,
             base_url: "http://127.0.0.1:9",
         };
         let req = build_get("account/account_info", &profile, &[], SignOptions::fresh().unwrap()).unwrap();
