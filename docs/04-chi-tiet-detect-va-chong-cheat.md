@@ -5,8 +5,8 @@
 > xem [tài liệu 34](34-siua-dfpid-vong-doi-static.md). Không dùng tên blob cũ
 > ở đây để xác định body `/eye`.
 
-> **Đính chính quantity/RWX:** [tài liệu 37](37-siua-quantity-rust-kiem-chung.md)
-> truy tới bộ đếm mapping có pathname chứa `libc.so`. `quantity` không phải
+> **Đính chính quantity/RWX:** `quantity` đếm mapping có pathname chứa
+> `libc.so`, không phải
 > số vùng RWX; bộ đếm `RWX` chỉ xét quyền ghi và thực thi trong nhóm đã lọc.
 > Các suy luận bên dưới về thiết bị sạch/injection không được chứng minh chỉ
 > bằng hai con số này.
