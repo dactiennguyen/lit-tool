@@ -1,5 +1,86 @@
 # Thử thay trường LitEye.detect
 
+## Sinh dữ liệu theo Hide My Device
+
+Từ thư mục `scripts`, chạy `npm run device:random` để in JSON 18 trường;
+`npm run device:random -- --field model` chỉ in bộ `brand`, `manufacturer`,
+`model`. Có thể import `randomizeAll()` hoặc `randomizeField()` từ
+`scripts/src/cli/device-random.ts`. Script chỉ in stdout, không gọi API,
+không đổi điện thoại, `.env` hoặc snapshot Eye. Nếu cần lưu JSON riêng, dùng
+`npm run --silent device:random > accounts/device-random.json` với đường dẫn
+mới; dấu `>` sẽ ghi đè nếu file đã tồn tại.
+
+Logic đối chiếu APK `io.github.imkamaran.hidemydevice` 1.0.0 đang cài:
+`em.a()` random tất cả, `em.c()` random từng trường/nhóm, `em.f()` sinh định
+danh, `em.g()` tính Luhn. Nhánh chọn nhà mạng cho số điện thoại được đối
+chiếu smali do jadx dựng sai vòng lặp. Dùng `node:crypto` thay Java
+`SecureRandom`; cùng quy tắc và tập giá trị, không cùng chuỗi byte ngẫu nhiên.
+
+| Trường | Quy tắc trong APK |
+|---|---|
+| `brand`, `manufacturer`, `model` | Chọn cùng một hàng trong 11 preset |
+| `imei` | `35` + 12 chữ số + 1 chữ số Luhn = 15 chữ số |
+| `serial` | 12 ký tự từ `0123456789ABCDEFGHJKLMNPQRSTUVWXYZ` |
+| `android_id` | 16 ký tự hex thường |
+| `advertising_id` | UUID v4 |
+| `media_drm` | 64 ký tự hex thường |
+| `wifi_mac`, `bssid`, `bt_mac` | 6 byte ngẫu nhiên, byte đầu AND `0xFC`; Bluetooth viết hoa |
+| `ssid` | Chọn một trong 8 tên Wi-Fi + `_` + 4 hex hoa |
+| `sim_serial` | `89` + 16 chữ số + Luhn = 19 chữ số |
+| `sim_operator`, `sim_operator_name`, `sim_country` | Chọn cùng một hàng trong 11 preset nhà mạng |
+| `sub_id` | MCC/MNC 5–6 chữ số + chữ số ngẫu nhiên cho đủ 15 |
+| `mobile_no` | `+` + mã gọi quốc gia + số 2–9 + 9 chữ số ngẫu nhiên |
+
+Luhn: từ cuối phần số chưa có checksum, nhân đôi xen kẽ bắt đầu ở chữ số
+cuối; kết quả lớn hơn 9 thì trừ 9; checksum bằng `(10 - tổng % 10) % 10`.
+Checksum đúng không chứng minh IMEI/ICCID là định danh được cấp thật.
+
+Random từng trường model trả cả bộ ba; từng trường nhà mạng trả cả bộ ba
+nhà mạng nhưng không tự đổi IMSI/số điện thoại đã lưu. Khi sinh riêng IMSI
+hoặc số điện thoại, truyền `--operator 310260` (chỉ hỗ trợ cho `sub_id` và
+`mobile_no`). IMSI giữ mọi MCC/MNC có đúng 5–6 chữ số; số điện thoại cần
+khớp một preset để chọn mã gọi quốc gia, nếu không thì chọn preset ngẫu nhiên.
+Random toàn bộ chọn nhà mạng trước để IMSI/số điện thoại khớp preset đó.
+
+Trong app, random ở nút ngoài dòng cập nhật cả nhóm; random bên trong hộp
+sửa chỉ điền trường đang sửa. `random_each_launch` sinh bộ mới khi hook nạp
+vào tiến trình, chỉ áp dụng cho các trường có giá trị đã lưu. Script sinh bộ
+mới mỗi lần gọi, không mô phỏng vòng đời tiến trình hay SharedPreferences.
+
+Đây là schema Hide My Device, không phải JSON 198 trường của Eye. APK không
+có công thức cho `device`, `product`, `board`, `hardware`, fingerprint hay
+toàn bộ 198 trường. Generator không tự điền chúng hoặc bảo đảm server chấp
+nhận dữ liệu sinh ra. Chọn ngẫu nhiên có thể trùng mẫu vừa chọn trước đó.
+
+## Thay trường và gửi Eye
+
+Ghép random với DFPID (chạy trong `scripts`):
+
+```sh
+npm run dfpid -- --input accounts/dfpid-input.json --output accounts/dfpid-random.json --random
+```
+
+`--random` mặc định đọc `scripts/devices_info.json`; dùng `--device <file>`
+để chọn mẫu khác. Script gọi `randomizeAll()` đúng một lần, thay các khóa
+có sẵn: `brand`, `manufacturer`, `model`, `android_id_secure`, `ad_aaid`,
+`serialno`, `bluetooth_address`, `drmId`, `drmId_native`. DRM được đổi từ hex
+sang Base64; Android ID/model được đồng bộ vào `query.uuid`/`query.model`.
+Các trường còn lại giữ theo mẫu, không thêm khóa từ schema random vào Eye.
+Các trường như `android_id_cache`, `uuid` của Eye, `mac_file`, IMEI/SIM chưa
+có ánh xạ được xác nhận trong luồng này nên không tự thay.
+
+JSON được nén/mã hóa rồi gửi `/eye`; **DFPID do server cấp**, không được
+tính hoàn toàn offline. Output chứa token cùng `query` và `fields` thực tế
+đã gửi, quyền `0600`; có thể chứa session từ config. File output phải chưa
+tồn tại. Mẫu gốc và `.env` không bị sửa. Muốn dùng lại đúng thiết bị vừa
+sinh, bỏ `--random` và dùng output làm input:
+
+```sh
+npm run dfpid -- --input accounts/dfpid-random.json --output accounts/dfpid-refreshed.json
+```
+
+Không truyền `--random` thì giữ hành vi lấy DFPID từ dữ liệu có sẵn.
+
 `scripts/eye-device.js` đọc snapshot JSON `LitEye.detect()` của bản Litmatch
 đã khảo sát, sao chép các trường rồi thay các khóa trong file overrides. Tên
 khóa phải có trong snapshot và giá trị thay phải cùng kiểu với giá trị gốc;

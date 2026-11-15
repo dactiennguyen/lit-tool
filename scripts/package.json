@@ -23,6 +23,8 @@
     "startup": "node src/cli/startup-api.ts",
     "eye": "node src/cli/eye.ts",
     "eye:device": "node src/cli/eye-device.ts",
+    "dfpid": "node src/cli/dfpid.ts",
+    "device:random": "node src/cli/device-random.ts",
     "siua": "node src/cli/siua.ts",
     "shadow": "node src/cli/shadow.ts",
     "litsign": "node src/cli/litsign.ts",
