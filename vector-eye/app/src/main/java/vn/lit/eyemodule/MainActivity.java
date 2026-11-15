@@ -3,6 +3,7 @@ package vn.lit.eyemodule;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
+import android.content.ComponentName;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.graphics.Color;
@@ -37,6 +38,7 @@ public final class MainActivity extends Activity {
     private Button readDevice, rotateDevice, resetDevice, verifyDevice, open, rootManager;
     private boolean deviceBusy, deviceWaiting;
     private int deviceRequestId;
+    private final boolean controllerUser = isControllerUser();
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -50,7 +52,9 @@ public final class MainActivity extends Activity {
         TextView title = text(layout, "Eye · Tài khoản và thiết bị", 28);
         title.setTextColor(Color.rgb(23, 43, 77));
         text(layout, "Lấy JSON của tài khoản Litmatch đang đăng nhập trên user 10.", 16);
-        status = text(layout, "Mở Litmatch một lần, sau đó quay lại Eye và bấm Lấy tài khoản.", 16);
+        status = text(layout, controllerUser && Process.myUid() / 100000 == 0
+            ? "Eye user 0 có thể điều khiển Hide My Device cho Litmatch/user 10."
+            : "Mở Litmatch một lần, sau đó quay lại Eye và bấm Lấy tài khoản.", 16);
         open = button(layout, "Mở Litmatch");
         open.setOnClickListener(v -> {
             Intent launch = getPackageManager().getLaunchIntentForPackage("com.litatom.app");
@@ -102,30 +106,44 @@ public final class MainActivity extends Activity {
         devicePreview.setTextIsSelectable(true);
         updateDeviceButtons();
         setContentView(scroll);
-        if (Process.myUid() / 100000 != 10) {
-            status.setText("Hãy mở Eye trong user 10 để lấy đúng tài khoản Litmatch.");
+        if (!controllerUser) {
+            status.setText("Mở Eye ở user 0 hoặc user 10 để điều khiển Litmatch/user 10.");
             fetch.setEnabled(false);
             open.setEnabled(false);
             rootManager.setEnabled(false);
             readDevice.setEnabled(false); rotateDevice.setEnabled(false); resetDevice.setEnabled(false); verifyDevice.setEnabled(false);
+        } else if (Process.myUid() / 100000 == 0) {
+            // Account export is scoped to the Litmatch process in user 10. User 0 is a device controller only.
+            fetch.setEnabled(false);
+            open.setEnabled(false);
+            verifyDevice.setEnabled(false);
         }
     }
 
     private void updateDeviceButtons() {
-        boolean available = !deviceBusy && !deviceWaiting && Process.myUid() / 100000 == 10;
+        boolean available = !deviceBusy && !deviceWaiting && controllerUser;
         readDevice.setEnabled(available);
         rotateDevice.setEnabled(available && deviceSnapshot != null);
         resetDevice.setEnabled(available && deviceSnapshot != null);
         verifyDevice.setEnabled(available);
-        open.setEnabled(available);
-        rootManager.setEnabled(Process.myUid() / 100000 == 10);
-        fetch.setEnabled(available && !waiting);
+        open.setEnabled(available && Process.myUid() / 100000 == 10);
+        rootManager.setEnabled(controllerUser);
+        fetch.setEnabled(available && Process.myUid() / 100000 == 10 && !waiting);
+    }
+
+    private static boolean isControllerUser() {
+        int user = Process.myUid() / 100000;
+        return user == 0 || user == 10;
     }
 
     private void openRootManager() {
         String[] packages = {"me.yuki.folk", "me.bmax.apatch", "com.topjohnwu.magisk"};
         for (String packageName : packages) {
             Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (launch == null && "me.yuki.folk".equals(packageName)) {
+                launch = new Intent().setComponent(new ComponentName(packageName,
+                    "me.bmax.apatch.ui.MainActivityAliasAnime"));
+            }
             if (launch != null) {
                 startActivity(launch);
                 deviceStatus.setText("Trong trình quản lý root, cấp ROOT cho Eye ở user 10 rồi quay lại đọc cấu hình.");
@@ -193,7 +211,10 @@ public final class MainActivity extends Activity {
     }
 
     private void requestDeviceReport() {
-        if (deviceBusy || deviceWaiting) return;
+        if (deviceBusy || deviceWaiting || Process.myUid() / 100000 != 10) {
+            if (Process.myUid() / 100000 == 0) deviceStatus.setText("Kiểm tra trong tiến trình Litmatch cần mở Eye ở user 10.");
+            return;
+        }
         int id = ++deviceRequestId;
         deviceWaiting = true;
         updateDeviceButtons();
@@ -227,7 +248,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestAccount() {
-        if (deviceBusy || deviceWaiting || waiting) return;
+        if (deviceBusy || deviceWaiting || waiting || Process.myUid() / 100000 != 10) return;
         int id = ++requestId;
         waiting = true;
         accountJson = null;

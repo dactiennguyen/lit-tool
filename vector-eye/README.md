@@ -8,6 +8,13 @@ Hide My Device vẫn là module áp dụng hook; cần bật trong Vector và ch
 trong trình quản lý root của máy (APatch/KernelSU/Magisk), rồi mở lại Eye.
 Với APatch, `su` có thể không xuất hiện trong ứng dụng chưa được cấp quyền.
 
+Nếu FolkPatch/APatch chỉ hoạt động ở user 0, Eye cũng có thể được cài và cấp
+quyền ở user 0 làm bộ điều khiển. Eye user 0 vẫn nhắm cố định tới cấu hình
+Hide My Device và Litmatch của user 10; phần lấy JSON tài khoản vẫn chỉ chạy
+ở user 10. Việc cài ứng dụng FolkPatch không đồng nghĩa KernelPatch đã hoạt động:
+màn hình phải báo đang hoạt động và APatch không được báo `SuperUser Count less
+than 1` hoặc `nativeKernelPatchModuleNum error`.
+
 1. Bấm **Đọc cấu hình thiết bị** để đọc cấu hình đang lưu trong Vector.
 2. **Đổi thông tin · giữ UUID** tạo lại 17 trường và giữ Android ID hiện tại.
    Litmatch được đóng trước khi ghi; dữ liệu đăng nhập không bị xóa.
