@@ -1,5 +1,15 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { ChatMessage, Conversation, FeedPage, HistoryPage, OnlineUsersPage, SendOutcome, UserProfile, Wallet } from "./lit-types";
+import type {
+  ChatMessage,
+  Conversation,
+  FeedPage,
+  HistoryPage,
+  OnlineUsersPage,
+  SavedConversation,
+  SendOutcome,
+  UserProfile,
+  Wallet,
+} from "./lit-types";
 
 export interface Account {
   id: string;
@@ -213,6 +223,10 @@ export const api = {
      */
     sendText: (accountId: string, to: string, text: string, firstContact: boolean) =>
       call<SendOutcome>("hx_send_text", { accountId, to, text, firstContact }),
+  },
+  chat: {
+    /** The conversations saved in sky.db for the account, newest message first. No network. */
+    savedConversations: (accountId: string) => call<SavedConversation[]>("chat_saved_conversations", { accountId }),
   },
   lit: {
     /**

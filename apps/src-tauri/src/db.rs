@@ -3,7 +3,8 @@
 //!
 //! Tables: `accounts` (metadata), `secrets` (sid, IM passwords, saved login
 //! template; a NULL value means deleted or known-absent) and `settings`
-//! (key -> JSON value). Writes that belong together go in one transaction.
+//! (key -> JSON value), and `conversations` (the chat list of each account,
+//! chat_store.rs). Writes that belong together go in one transaction.
 //!
 //! Earlier versions used `accounts.json`, `settings.json`, `secrets.json` and,
 //! before that, the OS keychain. On first open the JSON files are imported and
@@ -22,7 +23,7 @@ use crate::settings::AppSettings;
 use crate::store::now_ms;
 
 const FILE_NAME: &str = "sky.db";
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// Version 1.
 const SCHEMA: &str = "
@@ -59,12 +60,34 @@ DELETE FROM settings WHERE key IN ('imHost', 'imPort', 'imRestBase');
 INSERT OR REPLACE INTO secrets (key, value) VALUES ('global.im_template', NULL);
 ";
 
+/// Version 5: the conversations each account has chatted in (chat_store.rs).
+const MIGRATE_V5: &str = "
+CREATE TABLE conversations (
+    account_id        TEXT NOT NULL,
+    conversation_id   TEXT NOT NULL,
+    conversation_type INTEGER NOT NULL,
+    peer_name         TEXT,
+    peer_avatar       TEXT,
+    last_message      TEXT,
+    last_at           INTEGER,
+    last_id           TEXT,
+    updated_at        INTEGER NOT NULL,
+    PRIMARY KEY (account_id, conversation_id)
+);
+";
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error("Lỗi cơ sở dữ liệu: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("Lỗi đọc/ghi dữ liệu: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl serde::Serialize for DbError {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;
@@ -155,6 +178,9 @@ impl Db {
             }
             if version < 4 {
                 tx.execute_batch("ALTER TABLE accounts ADD COLUMN device_enabled INTEGER NOT NULL DEFAULT 0;")?;
+            }
+            if version < 5 {
+                tx.execute_batch(MIGRATE_V5)?;
             }
             // Into the current schema: the JSON files predate the database.
             let imported = if version < 1 { import_json_files(tx, dir)? } else { Vec::new() };
@@ -272,7 +298,9 @@ pub fn update_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
     if changed == 1 { Ok(()) } else { Err(rusqlite::Error::QueryReturnedNoRows) }
 }
 
+/// Deletes an account and its saved conversations.
 pub fn delete_account(c: &Connection, id: uuid::Uuid) -> rusqlite::Result<bool> {
+    c.execute("DELETE FROM conversations WHERE account_id = ?1", [id.to_string()])?;
     Ok(c.execute("DELETE FROM accounts WHERE id = ?1", [id.to_string()])? == 1)
 }
 
@@ -399,7 +427,7 @@ mod tests {
         let accounts = db.read(load_accounts).unwrap();
         assert_eq!(accounts[0].label, "Existing");
         assert!(accounts[0].device.is_none());
-        assert_eq!(db.read(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))).unwrap(), 4);
+        assert_eq!(db.read(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))).unwrap(), SCHEMA_VERSION);
     }
 
     #[test]

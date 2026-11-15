@@ -1,5 +1,6 @@
 mod accounts;
 mod chat;
+mod chat_store;
 mod db;
 mod dfpid;
 mod http;
@@ -31,6 +32,7 @@ pub fn run() {
             // Everything lives in sky.db; the keychain is only read to migrate old secrets.
             let db = std::sync::Arc::new(Db::open(&dir, Some(Box::new(KeyringStore)))?);
             app.manage(AccountRegistry::open(db.clone())?);
+            app.manage(chat_store::ChatStore::new(db.clone()));
             app.manage(SettingsStore::open(db)?);
             app.manage(chat::HxTokens::default());
             app.manage(listen::Listeners::default());
@@ -59,6 +61,7 @@ pub fn run() {
             lit::lit_feeds,
             chat::hx_history,
             chat::hx_send_text,
+            chat_store::chat_saved_conversations,
             listen::hx_listen_start,
             listen::hx_listen_stop,
             listen::hx_listen_status,

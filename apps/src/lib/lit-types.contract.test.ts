@@ -11,6 +11,7 @@ import conversations from "./contract/conversations.json";
 import feedPage from "./contract/feed-page.json";
 import historyPage from "./contract/history-page.json";
 import onlinePage from "./contract/online-users-page.json";
+import savedConversations from "./contract/saved-conversations.json";
 import sendOutcome from "./contract/send-outcome.json";
 import profile from "./contract/user-profile.json";
 import wallet from "./contract/wallet.json";
@@ -26,6 +27,7 @@ import type {
   MessageSender,
   MoodStatus,
   OnlineUsersPage,
+  SavedConversation,
   SendOutcome,
   UserProfile,
   UserTag,
@@ -40,6 +42,7 @@ const typedConversations = conversations satisfies Conversation[];
 const typedHistory = historyPage satisfies HistoryPage;
 const typedSend = sendOutcome satisfies SendOutcome;
 const typedFeed = feedPage satisfies FeedPage;
+const typedSaved = savedConversations satisfies SavedConversation[];
 
 type Undeclared<Json, Type> = Exclude<keyof Json, keyof Type>;
 type MustBeEmpty<K extends PropertyKey> = [K] extends [never] ? true : { undeclaredKeys: K };
@@ -64,7 +67,9 @@ export const noUndeclaredKeys: [
   MustBeEmpty<Undeclared<(typeof feedPage.feeds)[number], FeedItem>>,
   MustBeEmpty<Undeclared<Defined<(typeof feedPage.feeds)[number]["createTime"]>, FeedTime>>,
   MustBeEmpty<Undeclared<Defined<(typeof feedPage.feeds)[number]["userInfo"]>, UserProfile>>,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+  MustBeEmpty<Undeclared<(typeof savedConversations)[number], SavedConversation>>,
+  MustBeEmpty<Undeclared<Defined<(typeof savedConversations)[number]["lastMessage"]>, ChatMessage>>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
 
 /** Exhaustive key list: a missing or extra name is a type error. */
 function keysOf<T>() {
@@ -84,6 +89,9 @@ const MESSAGE_KEYS = keysOf<ChatMessage>()(["id", "from", "to", "timestamp", "co
 const SENDER_KEYS = keysOf<MessageSender>()(["name", "avatar"]);
 const CONTENT_KEYS = keysOf<MessageContent>()(["type", "text", "fileName", "address", "duration", "customEvent"]);
 const SEND_KEYS = keysOf<SendOutcome>()(["serverId", "localId", "metadataError"]);
+const SAVED_KEYS = keysOf<SavedConversation>()([
+  "conversationId", "conversationType", "peerName", "peerAvatar", "lastMessage", "updatedAt",
+]);
 const FEED_PAGE_KEYS = keysOf<FeedPage>()(["feeds", "hasNext", "nextStart"]);
 const FEED_ITEM_KEYS = keysOf<FeedItem>()([
   "id", "userId", "userInfo", "content", "createTime", "pics", "video", "tags", "location", "likeNum", "commentNum",
@@ -112,6 +120,8 @@ describe("Rust ↔ TypeScript contract", () => {
     }
     expect(typedHistory.messages.some((m) => m.sender)).toBe(true);
     expect(Object.keys(typedSend).sort()).toEqual([...SEND_KEYS].sort());
+    expect(Object.keys(typedSaved[0]!).sort()).toEqual([...SAVED_KEYS].sort());
+    expect(Object.keys(typedSaved[0]!.lastMessage!).sort()).toEqual([...MESSAGE_KEYS].sort());
   });
 
   it("feed pages have exactly the declared keys, author secrets excluded", () => {

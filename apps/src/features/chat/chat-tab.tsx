@@ -15,13 +15,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Account } from "@/lib/api";
-import type { ChatMessage, Conversation } from "@/lib/lit-types";
+import type { ChatMessage, Conversation, SavedConversation } from "@/lib/lit-types";
 import { usePeers, type Peer } from "@/lib/peer-directory";
-import { useConversations, useLatestMessages, useSettings } from "@/lib/queries";
+import { useConversations, useLatestMessages, useSavedConversations, useSettings } from "@/lib/queries";
 import { useLogin } from "@/lib/sessions";
 import { markerKey, useReadMarkers } from "@/lib/read-markers";
 import { cn } from "@/lib/utils";
-import { isUnread, previewText, shortId, shortTime, sortByLatest } from "./chat-view";
+import { isUnread, mergeConversations, previewText, savedPeer, shortId, shortTime, sortByLatest } from "./chat-view";
 import { ConnectionPanel } from "./connection-panel";
 import { ThreadPane } from "./thread-pane";
 
@@ -45,13 +45,18 @@ export function ChatTab({ account }: { account: Account }) {
   const { to } = useSearch({ from: "/account/$accountId/chat" });
   const navigate = useNavigate();
   const conversations = useConversations(account.id);
-  const peers = usePeers();
+  const saved = useSavedConversations(account.id);
+  const savedById = new Map((saved.data ?? []).map((s) => [s.conversationId, s]));
+  const directory = usePeers();
+  // A peer named nowhere fresher keeps the name saved with the conversation.
+  const peers = { get: (id: string) => directory.get(id) ?? savedPeer(savedById.get(id)) };
   const { data: settings } = useSettings();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   // Chat needs the account's IM identity (saved from its profile at login).
   const me = account.im ? account.im.username : null;
 
-  const listed = conversations.data?.find((c) => c.conversationId === to);
+  // Saved conversations count as listed: they were chatted in before.
+  const listed = mergeConversations(conversations.data, saved.data).find((c) => c.conversationId === to);
   // A conversation that is not listed is only "new" once the list has loaded:
   // otherwise a failed list would turn every send into a first contact.
   const open: OpenConversation | null = !to
@@ -81,6 +86,8 @@ export function ChatTab({ account }: { account: Account }) {
           accountId={account.id}
           me={me}
           query={conversations}
+          saved={saved.data}
+          savedById={savedById}
           peers={peers}
           selectedId={to}
           extraId={open && !listed ? open.id : null}
@@ -164,6 +171,8 @@ function ConversationList({
   accountId,
   me,
   query,
+  saved,
+  savedById,
   peers,
   selectedId,
   extraId,
@@ -174,17 +183,22 @@ function ConversationList({
   /** The account's IM username; null when chat is not configured (no previews then). */
   me: string | null;
   query: ReturnType<typeof useConversations>;
-  peers: ReadonlyMap<string, Peer>;
+  /** Conversations saved in sky.db: shown while the server list loads or when it fails. */
+  saved: readonly SavedConversation[] | undefined;
+  savedById: ReadonlyMap<string, SavedConversation>;
+  peers: { get(id: string): Peer | undefined };
   selectedId: string | undefined;
   /** Open conversation that is not (yet) in the server list. */
   extraId: string | null;
   extraIsNew: boolean;
   onSelect: (id: string) => void;
 }) {
-  const latest = useLatestMessages(accountId, query.data ?? [], me !== null);
+  const conversations = mergeConversations(query.data, saved);
+  const latest = useLatestMessages(accountId, conversations, me !== null, savedById);
   const markers = useReadMarkers();
+  const hasSaved = (saved?.length ?? 0) > 0;
 
-  if (query.isPending) {
+  if (query.isPending && !hasSaved) {
     return (
       <div className="space-y-2 p-3" aria-busy="true" aria-label="Đang tải hội thoại">
         {Array.from({ length: 5 }, (_, i) => (
@@ -193,7 +207,7 @@ function ConversationList({
       </div>
     );
   }
-  if (query.isError) {
+  if (query.isError && !hasSaved) {
     return (
       <EmptyState
         icon={AlertTriangleIcon}
@@ -208,20 +222,21 @@ function ConversationList({
     );
   }
 
-  const sorted = sortByLatest(query.data, latest);
+  const sorted = sortByLatest(conversations, latest);
   const items: (Conversation & { isNew?: boolean })[] = extraId
     ? [{ conversationId: extraId, conversationType: 0, isNew: extraIsNew }, ...sorted]
     : sorted;
   const unreadOf = (id: string) =>
     id !== selectedId && isUnread(latest.get(id)?.message, me, markers.get(markerKey(accountId, id)));
-  const unread = query.data.filter((c) => unreadOf(c.conversationId)).length;
+  const unread = conversations.filter((c) => unreadOf(c.conversationId)).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
         <p className="text-xs font-medium text-muted-foreground">
-          {query.data.length} hội thoại
+          {conversations.length} hội thoại
           {unread > 0 && <span className="text-primary"> · {unread} chưa đọc</span>}
+          {query.isPending && <span> · đang tải…</span>}
         </p>
         <Button
           variant="ghost"
@@ -233,6 +248,12 @@ function ConversationList({
           <RefreshCwIcon className={cn(query.isFetching && "animate-spin")} aria-hidden />
         </Button>
       </div>
+      {query.isError && (
+        <p role="alert" className="mx-3 mb-1 flex items-start gap-1.5 text-xs break-words text-destructive">
+          <AlertTriangleIcon className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span>Không tải được danh sách mới, đang hiện danh sách đã lưu. {query.error.message}</span>
+        </p>
+      )}
       {items.length === 0 ? (
         <EmptyState icon={InboxIcon} title="Chưa có hội thoại" description="Mở hồ sơ một người để bắt đầu nhắn tin." />
       ) : (

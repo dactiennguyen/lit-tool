@@ -20,6 +20,7 @@ use tauri::Manager;
 use uuid::Uuid;
 
 use crate::accounts::AccountRegistry;
+use crate::chat_store::{self, ChatStore};
 use crate::hx::{self, HistoryPage, HistoryTarget, HxError, LoginTemplate};
 use crate::lit::{self, LitError};
 use crate::settings::SettingsStore;
@@ -230,19 +231,26 @@ pub async fn hx_history(
     };
     hx::history_request(&target, limit, cursor.as_deref())?; // validate before any network call
     let (token, source, _) = session.token(&app).await?;
-    match hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await {
+    let page = match hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await {
         // A cached token may have been revoked: a read can safely be repeated once with a new one.
         Err(HxError::Unauthorized) if source == TokenSource::Cached => {
             session.forget_token(&app);
             let (token, ..) = session.token(&app).await?;
-            Ok(hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await?)
+            hx::fetch_history(&target, &token, limit, cursor.as_deref(), account_id).await?
         }
         Err(HxError::Unauthorized) => {
             session.forget_token(&app);
-            Err(HxError::Unauthorized.into())
+            return Err(HxError::Unauthorized.into());
         }
-        other => Ok(other?),
+        other => other?,
+    };
+    // The newest page names the conversation's last message (the saved preview).
+    if cursor.is_none()
+        && let Some(last) = chat_store::newest(&page.messages)
+    {
+        chat_store::note(app.state::<ChatStore>().save_message(account_id, &conversation_id, conversation_type, last));
     }
+    Ok(page)
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -288,6 +296,16 @@ pub async fn hx_send_text(
     if !ack.accepted {
         return Err(HxError::SendRejected(ack.code).into());
     }
+
+    let sent = hx::ChatMessage {
+        id: ack.server_id.clone(),
+        from: Some(session.template.username.clone()),
+        to: Some(to.clone()),
+        timestamp: Some(crate::store::now_ms()),
+        contents: vec![hx::MessageContent { kind: 0, text: Some(text), ..Default::default() }],
+        sender: None,
+    };
+    chat_store::note(app.state::<ChatStore>().save_message(account_id, &to, 0, &sent));
 
     let metadata_error = if first_contact {
         lit::sync_metadata(&app, account_id, &to, &lit::metadata_plan(true)).await.err().map(|e| e.to_string())

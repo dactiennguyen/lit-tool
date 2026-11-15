@@ -1,6 +1,8 @@
 // Display helpers for the chat page: message text and thread ordering.
 
-import type { ChatMessage, Conversation, HistoryPage, MessageContent } from "@/lib/lit-types";
+import { safeImageUrl } from "@/lib/lit-format";
+import type { ChatMessage, Conversation, HistoryPage, MessageContent, SavedConversation } from "@/lib/lit-types";
+import type { Peer } from "@/lib/peer-directory";
 import { compareIds } from "@/lib/read-markers";
 
 /** Same limit as hx.rs MAX_TEXT_BYTES. */
@@ -56,6 +58,28 @@ export function isUnread(latest: ChatMessage | null | undefined, me: string | nu
  * Newest activity first. Conversations without a known last message keep the
  * server order, after those with one.
  */
+/**
+ * The server's list, then the saved conversations it does not have (in their
+ * saved order). Either may still be missing: then the other is the list.
+ */
+export function mergeConversations(
+  listed: readonly Conversation[] | undefined,
+  saved: readonly SavedConversation[] | undefined,
+): Conversation[] {
+  const out: Conversation[] = (listed ?? []).map(({ conversationId, conversationType }) => ({ conversationId, conversationType }));
+  const known = new Set(out.map((c) => c.conversationId));
+  for (const s of saved ?? []) {
+    if (!known.has(s.conversationId)) out.push({ conversationId: s.conversationId, conversationType: s.conversationType });
+  }
+  return out;
+}
+
+/** The peer as saved with the conversation, for when nothing fresher is known. */
+export function savedPeer(s: SavedConversation | undefined): Peer | undefined {
+  if (!s?.peerName) return undefined;
+  return { name: s.peerName, avatarUrl: safeImageUrl(s.peerAvatar), userId: null };
+}
+
 export function sortByLatest<C extends Conversation>(
   list: readonly C[],
   latest: ReadonlyMap<string, { message: ChatMessage | null | undefined }>,

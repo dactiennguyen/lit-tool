@@ -540,7 +540,10 @@ pub async fn lit_user_info_me(app: tauri::AppHandle, account_id: uuid::Uuid) -> 
 #[tauri::command]
 pub async fn lit_conversations(app: tauri::AppHandle, account_id: uuid::Uuid) -> Result<Vec<Conversation>, CommandError> {
     let list: ConversationList = get_typed(&app, account_id, |p, o| build_get("user/conversations", p, &[], o)).await?;
-    Ok(list.into_valid())
+    let list = list.into_valid();
+    use tauri::Manager;
+    crate::chat_store::note(app.state::<crate::chat_store::ChatStore>().save_listed(account_id, &list));
+    Ok(list)
 }
 
 /// Runs `plan` in order and stops at the first failure: no retries, since

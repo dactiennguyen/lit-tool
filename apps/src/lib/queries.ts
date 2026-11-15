@@ -1,5 +1,5 @@
 import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChatMessage, Conversation } from "./lit-types";
+import type { ChatMessage, Conversation, SavedConversation } from "./lit-types";
 import { rememberPeers, rememberSender } from "./peer-directory";
 import { compareIds } from "./read-markers";
 import { connectTcp, getTcpStatus, isLive, isTcpError, setTcpStatus, useTcpStatus } from "./tcp-status";
@@ -17,6 +17,8 @@ export const queryKeys = {
 export const conversationsKey = (accountId: string | undefined) => [...queryKeys.lit, "conversations", accountId] as const;
 export const historyKey = (accountId: string | undefined, conversationId: string | undefined) =>
   [...queryKeys.hx, "history", accountId, conversationId] as const;
+/** Conversations saved in sky.db: local data, kept apart from the API prefixes so changing servers keeps them. */
+export const savedConversationsKey = (accountId: string | undefined) => ["db", "conversations", accountId] as const;
 export const latestKey = (accountId: string | undefined, conversationId: string) =>
   [...queryKeys.hx, "latest", accountId, conversationId] as const;
 
@@ -97,6 +99,17 @@ export const useAccountInfo = (accountId: string | undefined) => useQuery(litQue
 export const useUserInfoMe = (accountId: string | undefined) => useQuery(litQueries.userInfoMe(accountId));
 export const useConversations = (accountId: string | undefined) => useQuery(litQueries.conversations(accountId));
 
+/** The account's saved conversations (chat_store.rs), read from disk each time the chat list mounts. */
+export function useSavedConversations(accountId: string | undefined) {
+  return useQuery({
+    queryKey: savedConversationsKey(accountId),
+    queryFn: () => api.chat.savedConversations(accountId!),
+    enabled: !!accountId,
+    retry: false,
+    staleTime: 0,
+  });
+}
+
 export function useUserInfo(accountId: string | undefined, targetId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.lit, "user_info", accountId, targetId],
@@ -157,8 +170,14 @@ const LIST_POLL_MS = 60_000;
  * Last message of each conversation (`null` when there is none), for previews
  * and unread dots. One small `messageroaming` request per conversation, then
  * kept current by the live connection, or refreshed every minute without one.
+ * Until then, the message saved in sky.db (`saved`) shows.
  */
-export function useLatestMessages(accountId: string | undefined, conversations: readonly Conversation[], enabled: boolean) {
+export function useLatestMessages(
+  accountId: string | undefined,
+  conversations: readonly Conversation[],
+  enabled: boolean,
+  saved?: ReadonlyMap<string, SavedConversation>,
+) {
   const live = useTcpStatus(accountId ?? "").state === "live";
   const list = conversations
     .filter((c) => c.conversationType === 0 || c.conversationType === 1)
@@ -166,6 +185,9 @@ export function useLatestMessages(accountId: string | undefined, conversations: 
   return useQueries({
     queries: list.map((c) => ({
       queryKey: latestKey(accountId, c.conversationId),
+      // Shown at once, and stale from the time it was saved, so it is fetched again.
+      initialData: saved?.get(c.conversationId)?.lastMessage ?? undefined,
+      initialDataUpdatedAt: saved?.get(c.conversationId)?.updatedAt,
       queryFn: async () => {
         const { messages } = await api.hx.history(accountId!, c.conversationId, c.conversationType, null, PREVIEW_PAGE);
         if (c.conversationType === 0) rememberSender(c.conversationId, messages);

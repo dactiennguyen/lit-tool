@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, HistoryPage, MessageContent } from "@/lib/lit-types";
-import { canSend, contentText, isUnread, MAX_TEXT_BYTES, previewText, shortId, shortTime, sortByLatest, toThread } from "./chat-view";
+import type { ChatMessage, HistoryPage, MessageContent, SavedConversation } from "@/lib/lit-types";
+import {
+  canSend,
+  contentText,
+  isUnread,
+  MAX_TEXT_BYTES,
+  mergeConversations,
+  previewText,
+  savedPeer,
+  shortId,
+  shortTime,
+  sortByLatest,
+  toThread,
+} from "./chat-view";
 
 const content = (o: Partial<MessageContent>): MessageContent => ({
   type: 0, text: null, fileName: null, address: null, duration: null, customEvent: null, ...o,
@@ -77,5 +89,29 @@ describe("conversation list helpers", () => {
     const now = new Date(2026, 10, 14, 15, 0);
     expect(shortTime(new Date(2026, 10, 14, 9, 5).getTime(), now)).toMatch(/0?9:05/);
     expect(shortTime(new Date(2026, 10, 13, 9, 5).getTime(), now)).toBe("13/11");
+  });
+});
+
+describe("saved conversations", () => {
+  const saved = (conversationId: string, peerName: string | null = null): SavedConversation => ({
+    conversationId,
+    conversationType: 0,
+    peerName,
+    peerAvatar: null,
+    lastMessage: null,
+    updatedAt: 1,
+  });
+
+  it("keeps the server order and adds the saved ones it lacks", () => {
+    const listed = [{ conversationId: "b", conversationType: 0 }, { conversationId: "g", conversationType: 1 }];
+    expect(mergeConversations(listed, [saved("a"), saved("b")]).map((c) => c.conversationId)).toEqual(["b", "g", "a"]);
+    expect(mergeConversations(undefined, [saved("a")])).toEqual([{ conversationId: "a", conversationType: 0 }]);
+    expect(mergeConversations(listed, undefined)).toHaveLength(2);
+  });
+
+  it("names a peer from the saved row only when it has a name", () => {
+    expect(savedPeer(saved("a", "Lan"))).toEqual({ name: "Lan", avatarUrl: null, userId: null });
+    expect(savedPeer(saved("a"))).toBeUndefined();
+    expect(savedPeer(undefined)).toBeUndefined();
   });
 });

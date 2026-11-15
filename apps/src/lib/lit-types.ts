@@ -88,6 +88,19 @@ export interface Conversation {
   conversationType: number;
 }
 
+/** A conversation saved in sky.db (chat_store.rs `SavedConversation`). */
+export interface SavedConversation {
+  conversationId: string;
+  conversationType: number;
+  peerName: string | null;
+  /** CDN file id of the avatar. */
+  peerAvatar: string | null;
+  /** The newest message known. */
+  lastMessage: ChatMessage | null;
+  /** When the row last changed (ms since the epoch). */
+  updatedAt: number;
+}
+
 // ---------- IM (hx.rs / chat.rs) ----------
 
 /** 0 text, 1 image, 2 video, 3 location, 4 voice, 5 file, 6 command, 7 custom, 8 combine. */

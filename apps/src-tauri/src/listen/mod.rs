@@ -29,6 +29,7 @@ use tokio::time::{Instant, sleep_until};
 use uuid::Uuid;
 
 use crate::chat::{CommandError, Session, TokenSource};
+use crate::chat_store::{self, ChatStore};
 use crate::hx::{self, HxError, SendAck, TextMessage};
 use session::{End, Event, Incoming, Link, LogLine, MAX_ACKS, Outgoing, Seen, TIMING, run_session};
 
@@ -236,6 +237,8 @@ async fn connect_once(
             set_state(app, account_id, generation, LiveState::Live { since: now() });
         }
         Event::Message(incoming) => {
+            let (id, kind) = (&incoming.conversation_id, i64::from(incoming.conversation_type));
+            chat_store::note(app.state::<ChatStore>().save_message(account_id, id, kind, &incoming.message));
             let _ = app.emit("hx-message", MessageEvent { account_id, incoming });
         }
         Event::Log(line) => {

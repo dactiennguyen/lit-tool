@@ -1,0 +1,26 @@
+[
+  {
+    "conversationId": "love123",
+    "conversationType": 0,
+    "peerName": "Lan",
+    "peerAvatar": "0b8c7a52-1d1e-4f3e-9a55-123456789abc",
+    "lastMessage": {
+      "id": "9",
+      "from": "love123",
+      "to": "me",
+      "timestamp": 1700000000000,
+      "contents": [
+        {
+          "type": 0,
+          "text": "chào",
+          "fileName": null,
+          "address": null,
+          "duration": null,
+          "customEvent": null
+        }
+      ],
+      "sender": null
+    },
+    "updatedAt": 1700000000001
+  }
+]
