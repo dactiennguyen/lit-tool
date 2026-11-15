@@ -64,7 +64,9 @@ npm run dfpid -- --input accounts/dfpid-input.json --output accounts/dfpid-rando
 để chọn mẫu khác. Script gọi `randomizeAll()` đúng một lần, thay các khóa
 có sẵn: `brand`, `manufacturer`, `model`, `android_id_secure`, `ad_aaid`,
 `serialno`, `bluetooth_address`, `drmId`, `drmId_native`. DRM được đổi từ hex
-sang Base64; Android ID/model được đồng bộ vào `query.uuid`/`query.model`.
+sang Base64. Nếu config có `query.uuid`, giữ nguyên UUID đó trong query và
+`android_id_secure`, không sinh Android ID khác. Chỉ sinh UUID khi config chưa
+có; model được đồng bộ vào `query.model`.
 Các trường còn lại giữ theo mẫu, không thêm khóa từ schema random vào Eye.
 Các trường như `android_id_cache`, `uuid` của Eye, `mac_file`, IMEI/SIM chưa
 có ánh xạ được xác nhận trong luồng này nên không tự thay.
@@ -83,16 +85,50 @@ Không truyền `--random` thì giữ hành vi lấy DFPID từ dữ liệu có 
 
 ## Trong app Tauri
 
-Form thêm/sửa account có **Tạo thiết bị mới** (random từ mẫu 198 trường)
-và **Làm mới DFPID** (giữ JSON của thiết bị hiện tại). Rust thực hiện nén,
-mã hóa và gọi `/eye` trực tiếp, không cần Node hoặc ADB trên máy chạy app.
-Mẫu `scripts/devices_info.json` được nhúng lúc build; sửa mẫu thì cần build lại.
+**Bật thiết bị** mặc định tắt, cả với account mới và account cũ khi nâng cấp
+lên schema v4. Trạng thái được lưu riêng cho từng account, chỉ áp dụng sau
+khi bấm **Lưu**. Khi tắt, không tự tạo thiết bị, không gọi Eye để refresh,
+không gắn `X-DFPID` và không lấy UUID/model từ JSON đã sinh. Request vẫn cần
+UUID của phiên đăng nhập và vẫn tạo `X-SIUA` theo luồng hiện có.
 
-Kết quả là bản nháp tới khi bấm Lưu. JSON, UUID, model, version, DFPID và hạn
-dùng được lưu cùng account trong một transaction của `sky.db` (schema v3,
-tự nâng cấp từ v1/v2). Hủy hoặc lỗi API không đổi thiết bị đã lưu. Request
-Litmatch dùng UUID/model/token của account; đổi UUID sẽ dừng kết nối chat
-cũ. Bản này làm mới DFPID bằng nút bấm, chưa tự làm mới khi token hết hạn.
+Khi thêm account với thiết bị tắt, nhập tên, version, sid và **Device UUID
+của phiên đăng nhập**. UUID đã có được dùng cho cả account, JSON
+`android_id_secure` và query `/eye`; tạo/xoay/refresh không sinh UUID khác.
+Backend từ chối bật/lưu thiết bị khác UUID account. Nếu sửa UUID thủ công,
+cần làm mới DFPID để đồng bộ JSON trước khi bật. Nếu bật thiết bị khi thêm,
+backend tạo JSON và lấy DFPID trước khi lưu; Eye lỗi thì không tạo account
+dở dang. Nếu không nhập UUID phiên ở chế độ bật, UUID vừa sinh được dùng làm
+giá trị ban đầu, không phải UUID gốc đã được xác minh với sid.
+
+Form sửa có **Xoay thiết bị**, **Làm mới DFPID** và **Xem thông tin thiết bị**.
+Account chưa có JSON có thể tạo thiết bị trước hoặc nhập DFPID rồi bật.
+Các nút tạo/refresh bị khóa khi tắt, JSON cũ vẫn xem được. Tắt không xóa dữ
+liệu đã lưu; bản nháp đang tạo không được áp dụng nếu lưu khi tắt. Khi bật,
+request luôn dùng UUID account; chỉ model/DFPID lấy từ JSON khi bật; với DFPID nhập tay, giữ UUID phiên
+và không tự refresh vì chưa có JSON/hạn dùng.
+
+Rust nén, mã hóa và gọi `/eye` trực tiếp, không cần Node/ADB. Mẫu 198 trường
+`scripts/devices_info.json` được nhúng lúc build. JSON/DFPID và trạng thái
+bật/tắt được lưu cùng account trong transaction của `sky.db`. Hủy không đổi
+thiết bị. Đổi chế độ, UUID phiên hoặc UUID đang dùng sẽ làm mới trạng thái
+đăng nhập và dừng kết nối chat cũ.
+
+Chỉ khi bật, app kiểm tra hạn DFPID trước request và kiểm tra nền mỗi 30 giây.
+Refresh giữ nguyên JSON/UUID/model. Các request đồng thời chờ chung một lần
+refresh. Eye lỗi thì giữ dữ liệu cũ, chờ 30 giây trước khi thử lại và không
+gửi token hết hạn. Nếu tắt, đổi thiết bị/session hoặc xóa account trong lúc
+refresh, response cũ không ghi đè dữ liệu. Danh sách account đồng bộ mỗi
+15 giây. App đóng thì không refresh nền.
+
+Thông báo `result=-10` được UI gọi là **Session không được chấp nhận**. Mã này
+không chứng minh nguyên nhân là hết hạn hay đổi thiết bị. Luồng trước đây tự
+ghi đè UUID bằng UUID ngẫu nhiên khi thêm/xoay; dùng nó với sid có sẵn có thể
+làm sai cặp thông tin. Account đã bị ghi đè trước bản này không tự khôi phục
+được UUID gốc: cần nhập lại UUID đi cùng sid, tắt thiết bị rồi thử lại; nếu
+vẫn bị từ chối thì cập nhật phiên từ app đang đăng nhập. Đối chứng Node.js trên account hiện tại: giữ sid, đổi UUID và ký lại request,
+UUID đã sinh trả `-10` hai lần, UUID gốc trả `0` hai lần. Khôi phục UUID gốc
+cho account/JSON và cấp lại DFPID cho kết quả hồ sơ thành công cả khi bật và
+tắt DFPID. Đây là kết quả của phiên đã thử, không khái quát mọi cơ chế login.
 
 Kiểm tra gọi Eye thực tế bằng Rust (chỉ chạy khi có config được phép sử dụng):
 
