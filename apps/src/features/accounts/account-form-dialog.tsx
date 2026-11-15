@@ -4,6 +4,7 @@ import { EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type Account, type DeviceSetup } from "@/lib/api";
@@ -36,7 +37,10 @@ export function AccountFormDialog({
   const [values, setValues] = useState(() => initialValues(account));
   const [errors, setErrors] = useState<AccountFormErrors>({});
   const [showSid, setShowSid] = useState(false);
-  const [device, setDevice] = useState<DeviceSetup | null>(account?.device ?? null);
+  const [deviceEnabled, setDeviceEnabled] = useState(account?.deviceEnabled ?? false);
+  const deviceSwitchId = useId();
+  const [draftDevice, setDevice] = useState<DeviceSetup | null>(null);
+  const device = draftDevice ?? account?.device ?? null;
   const [generating, setGenerating] = useState(false);
   const add = useAddAccount();
   const update = useUpdateAccount();
@@ -51,19 +55,29 @@ export function AccountFormDialog({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (pending) return;
-    const found = validateAccountForm(values, { sidRequired: !isEdit });
-    if (device && device.version !== values.version.trim()) found.version = "Làm mới DFPID sau khi đổi version";
-    if (device && device.exp <= Date.now()) found.dfpid = "DFPID đã hết hạn, hãy làm mới";
+    const found = validateAccountForm({ ...values, dfpid: deviceEnabled ? values.dfpid : "" }, { sidRequired: !isEdit, automaticDevice: !isEdit && deviceEnabled });
+    if (deviceEnabled && device && values.deviceUuid.trim() && device.deviceUuid !== values.deviceUuid.trim()) found.dfpid = "Làm mới DFPID để JSON khớp UUID đã nhập";
+    if (deviceEnabled && device && device.version !== values.version.trim()) found.version = "Làm mới DFPID sau khi đổi version";
+    if (deviceEnabled && draftDevice && draftDevice.exp <= Date.now()) found.dfpid = "DFPID bản nháp đã hết hạn, hãy làm mới";
+    if (isEdit && deviceEnabled && !device && !values.dfpid.trim()) found.dfpid = "Tạo thiết bị hoặc nhập DFPID trước khi bật";
     setErrors(found);
     if (Object.keys(found).length) return;
 
     const dfpid = values.dfpid.trim() || null;
     const sid = values.sid.trim();
+    const devicePatch = !deviceEnabled ? {} : draftDevice
+      ? { device: draftDevice, dfpid: draftDevice.dfpId }
+      : !device ? { dfpid } : {};
     try {
       if (account) {
         await update.mutateAsync({
           id: account.id,
-          patch: { label: values.label, version: values.version, dfpid, ...(sid ? { sid } : {}), ...(device ? { device } : {}) },
+          patch: {
+            label: values.label, version: values.version, deviceEnabled,
+            ...(values.deviceUuid !== account.deviceUuid ? { deviceUuid: values.deviceUuid } : {}),
+            ...(sid ? { sid } : {}),
+            ...devicePatch,
+          },
         });
         toast.success("Đã lưu thay đổi");
       } else {
@@ -71,9 +85,9 @@ export function AccountFormDialog({
           label: values.label,
           deviceUuid: values.deviceUuid,
           version: values.version,
-          dfpid,
+          deviceEnabled,
           sid,
-          ...(device ? { device } : {}),
+          ...(deviceEnabled ? { dfpid, ...(draftDevice ? { device: draftDevice } : {}) } : {}),
         });
         void navigate({ to: "/account/$accountId", params: { accountId: created.id } });
         toast.success(`Đã thêm ${created.label}`);
@@ -85,15 +99,15 @@ export function AccountFormDialog({
   }
 
   async function generateDevice(random: boolean) {
-    if (pending) return;
+    if (pending || !deviceEnabled) return;
     setGenerating(true);
     try {
       const result = await api.device.generate({
         accountId: account?.id, sid: values.sid.trim() || undefined, version: values.version,
-        fields: device?.fields, random,
+        deviceUuid: values.deviceUuid.trim() || undefined, fields: device?.fields, random,
       });
       setDevice(result);
-      setValues((v) => ({ ...v, deviceUuid: result.deviceUuid, dfpid: result.dfpId, version: result.version }));
+      setValues((v) => ({ ...v, deviceUuid: v.deviceUuid.trim() || result.deviceUuid, dfpid: result.dfpId, version: result.version }));
       setErrors((e) => ({ ...e, deviceUuid: undefined, dfpid: undefined, version: undefined }));
       toast.success(random ? "Đã tạo thiết bị và lấy DFPID. Bấm Lưu để áp dụng." : "Đã làm mới DFPID. Bấm Lưu để áp dụng.");
     } catch (err) {
@@ -143,8 +157,8 @@ export function AccountFormDialog({
             </Field>
 
             <Field
-              label="Device UUID"
-              hint={isEdit ? "Dùng Tạo thiết bị mới để đổi UUID cùng DFPID" : undefined}
+              label="Device UUID của phiên đăng nhập"
+              hint="Nhập UUID đi cùng sid. Khi tắt Thiết bị, request dùng UUID này."
               error={errors.deviceUuid}
             >
               {(id, describedBy) => (
@@ -152,7 +166,6 @@ export function AccountFormDialog({
                   id={id}
                   value={values.deviceUuid}
                   onChange={(e) => set("deviceUuid")(e.target.value)}
-                  disabled={isEdit || !!device}
                   spellCheck={false}
                   className="font-mono"
                   aria-invalid={!!errors.deviceUuid}
@@ -195,27 +208,42 @@ export function AccountFormDialog({
             </Field>
 
             <fieldset className="grid gap-3 rounded-lg border p-3">
-              <legend className="px-1 text-xs text-muted-foreground">Token thiết bị (không bắt buộc)</legend>
-              <p className="-mt-1 text-xs text-muted-foreground">
-                Tạo từ JSON mẫu hoặc nhập DFPID của bạn. Thiết bị mới chỉ được áp dụng khi lưu account.
+              <legend className="px-1 text-xs text-muted-foreground">Thiết bị</legend>
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor={deviceSwitchId}>Bật thiết bị</Label>
+                <Switch id={deviceSwitchId} checked={deviceEnabled} disabled={pending}
+                  onCheckedChange={(checked) => { setDeviceEnabled(checked); setErrors({}); }} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {!deviceEnabled
+                  ? "Đang tắt: không tự tạo hoặc refresh thiết bị, không gắn X-DFPID hay UUID/model từ JSON. Dữ liệu đã lưu được giữ lại."
+                  : !isEdit && !device
+                  ? "Khi thêm account, app tự tạo thiết bị, lấy DFPID và lưu thông tin. Giữ UUID đã nhập; chỉ sinh UUID khi chưa có."
+                  : !device ? "Tạo thiết bị hoặc nhập DFPID trước khi lưu. Tự refresh chỉ áp dụng khi có JSON thiết bị."
+                  : "Tạo, xoay và refresh đều giữ UUID của account. JSON và DFPID dùng cùng UUID này; chỉ thay thông tin khác khi bạn bấm Xoay thiết bị."}
               </p>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void generateDevice(true)}>
+                <Button type="button" variant="outline" size="sm" disabled={!deviceEnabled} onClick={() => void generateDevice(true)}>
                   {generating && <Loader2Icon className="animate-spin" aria-hidden />}
-                  Tạo thiết bị mới
+                  {device ? "Xoay thiết bị" : "Tạo thiết bị trước"}
                 </Button>
-                <Button type="button" variant="outline" size="sm" disabled={!device} onClick={() => void generateDevice(false)}>
+                <Button type="button" variant="outline" size="sm" disabled={!deviceEnabled || !device} onClick={() => void generateDevice(false)}>
                   Làm mới DFPID
                 </Button>
               </div>
               {device && <p className="text-xs text-muted-foreground" role="status">
                 {String(device.fields.model)} · {Object.keys(device.fields).length} trường · Hết hạn {new Date(device.exp).toLocaleString("vi-VN")}
               </p>}
-              <Field label="DFPID" error={errors.dfpid}>
+              {device && <details className="min-w-0 text-xs">
+                <summary className="cursor-pointer">Xem thông tin thiết bị{draftDevice ? " (bản nháp)" : " đã lưu"}</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded border p-2 select-text">{JSON.stringify(device, null, 2)}</pre>
+              </details>}
+              {(deviceEnabled || device) && <Field label="DFPID" error={errors.dfpid}>
                 {(id, describedBy) => (
                   <Input
                     id={id}
-                    value={values.dfpid}
+                    value={device?.dfpId ?? values.dfpid}
+                    disabled={!deviceEnabled}
                     readOnly={!!device}
                     onChange={(e) => set("dfpid")(e.target.value)}
                     spellCheck={false}
@@ -225,7 +253,7 @@ export function AccountFormDialog({
                     aria-describedby={describedBy}
                   />
                 )}
-              </Field>
+              </Field>}
             </fieldset>
           </fieldset>
 

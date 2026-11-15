@@ -35,7 +35,11 @@ export function parseDfpInput(value: unknown): DfpInput {
 export function randomizeDfpInput(value: unknown): DfpInput {
   if (!isPlainObject(value) || !isPlainObject(value.query)) throw Error('Expected { query, fields } in input JSON');
   const fields = prepareFields(value.fields, {});
-  const device = randomizeAll();
+  const existingUuid = value.query.uuid;
+  if (existingUuid !== undefined && (typeof existingUuid !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(existingUuid))) {
+    throw Error('Invalid query.uuid');
+  }
+  const device = randomizeAll(existingUuid as string | undefined);
   const drm = Buffer.from(device.media_drm, 'hex').toString('base64');
   const replacements: Record<string, string> = {
     brand: device.brand, manufacturer: device.manufacturer, model: device.model,

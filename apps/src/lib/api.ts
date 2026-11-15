@@ -9,6 +9,7 @@ export interface Account {
   version: string;
   dfpid: string | null;
   device?: DeviceSetup | null;
+  deviceEnabled: boolean;
   createdAt: number;
   sessionSavedAt: number | null;
   /** IM identity saved from the profile at login; the password stays in the keychain. */
@@ -97,19 +98,22 @@ export interface ServersReport {
 
 export interface NewAccount {
   label: string;
-  deviceUuid: string;
+  deviceUuid?: string;
   version: string;
-  dfpid: string | null;
+  dfpid?: string | null;
   sid: string;
   device?: DeviceSetup;
+  deviceEnabled?: boolean;
 }
 
 export interface AccountPatch {
+  deviceUuid?: string;
   label?: string;
   version?: string;
   dfpid?: string | null;
   sid?: string;
   device?: DeviceSetup;
+  deviceEnabled?: boolean;
 }
 
 export interface DeviceSetup {
@@ -122,6 +126,7 @@ export interface DeviceSetup {
 }
 
 export interface DeviceRequest {
+  deviceUuid?: string;
   accountId?: string;
   sid?: string;
   version: string;

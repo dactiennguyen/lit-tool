@@ -23,6 +23,11 @@ const valid: AccountFormValues = {
 };
 
 describe("validateAccountForm", () => {
+  it("allows automatic device creation without UUID or DFPID", () => {
+    expect(validateAccountForm({ ...valid, deviceUuid: "", dfpid: "" }, { sidRequired: true, automaticDevice: true })).toEqual({});
+    expect(validateAccountForm({ ...valid, deviceUuid: "" }, { sidRequired: true }).deviceUuid).toBeDefined();
+    expect(validateAccountForm({ ...valid, sid: "", deviceUuid: "" }, { sidRequired: true, automaticDevice: true }).sid).toBeDefined();
+  });
   it("accepts a valid new account", () => {
     expect(validateAccountForm(valid, { sidRequired: true })).toEqual({});
   });

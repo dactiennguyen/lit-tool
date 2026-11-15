@@ -117,8 +117,10 @@ export function randomizeField(field: DeviceField, operator = ''): Partial<Devic
   return { [field]: value };
 }
 
-export function randomizeAll(): DeviceIdentity {
-  const values: Partial<DeviceIdentity> = { ...carrierGroup(), ...modelGroup() };
+export function randomizeAll(androidId?: string): DeviceIdentity {
+  if (androidId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(androidId)) throw Error('Invalid existing Android ID');
+  const values: Partial<DeviceIdentity> = { ...carrierGroup(), ...modelGroup(),
+    ...(androidId !== undefined ? { android_id: androidId } : {}) };
   for (const field of FIELDS) {
     if (!Object.hasOwn(values, field)) Object.assign(values, randomizeField(field, values.sim_operator));
   }

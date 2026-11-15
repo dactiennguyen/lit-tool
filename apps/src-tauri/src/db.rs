@@ -22,7 +22,7 @@ use crate::settings::AppSettings;
 use crate::store::now_ms;
 
 const FILE_NAME: &str = "sky.db";
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Version 1.
 const SCHEMA: &str = "
@@ -153,6 +153,9 @@ impl Db {
             if version < 3 {
                 tx.execute_batch("ALTER TABLE accounts ADD COLUMN device TEXT;")?;
             }
+            if version < 4 {
+                tx.execute_batch("ALTER TABLE accounts ADD COLUMN device_enabled INTEGER NOT NULL DEFAULT 0;")?;
+            }
             // Into the current schema: the JSON files predate the database.
             let imported = if version < 1 { import_json_files(tx, dir)? } else { Vec::new() };
             tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -211,7 +214,7 @@ pub fn put_secret(c: &Connection, key: &str, value: Option<&str>) -> rusqlite::R
 // ---------- accounts ----------
 
 const ACCOUNT_COLUMNS: &str =
-    "id, label, user_id, device_uuid, version, siua, dfpid, created_at, session_saved_at, im_username, im_saved_at, im_client, device";
+    "id, label, user_id, device_uuid, version, siua, dfpid, created_at, session_saved_at, im_username, im_saved_at, im_client, device, device_enabled";
 
 fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
     let id: String = r.get(0)?;
@@ -235,6 +238,7 @@ fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         session_saved_at: r.get::<_, Option<i64>>(8)?.map(|v| v as u64),
         im,
         im_client,
+        device_enabled: r.get(13)?,
         device: r.get::<_, Option<String>>(12)?.map(|v| serde_json::from_str(&v)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Text, Box::new(e)))).transpose()?,
     })
@@ -251,7 +255,7 @@ pub fn insert_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
     c.execute(
         &format!(
             "INSERT INTO accounts (position, {ACCOUNT_COLUMNS})
-             VALUES ((SELECT COALESCE(MAX(position), -1) + 1 FROM accounts), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+             VALUES ((SELECT COALESCE(MAX(position), -1) + 1 FROM accounts), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ),
         account_params(a),
     )
@@ -262,7 +266,7 @@ pub fn insert_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
 pub fn update_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
     let changed = c.execute(
         "UPDATE accounts SET label = ?2, user_id = ?3, device_uuid = ?4, version = ?5, siua = ?6, dfpid = ?7,
-         created_at = ?8, session_saved_at = ?9, im_username = ?10, im_saved_at = ?11, im_client = ?12, device = ?13 WHERE id = ?1",
+         created_at = ?8, session_saved_at = ?9, im_username = ?10, im_saved_at = ?11, im_client = ?12, device = ?13, device_enabled = ?14 WHERE id = ?1",
         account_params(a),
     )?;
     if changed == 1 { Ok(()) } else { Err(rusqlite::Error::QueryReturnedNoRows) }
@@ -287,6 +291,7 @@ fn account_params(a: &Account) -> impl rusqlite::Params + '_ {
         a.im.as_ref().map(|im| im.saved_at as i64),
         a.im_client.map(|c| c.to_string()),
         a.device.as_ref().map(|d| serde_json::to_string(d).expect("device JSON is serializable")),
+        a.device_enabled,
     )
 }
 
@@ -394,7 +399,30 @@ mod tests {
         let accounts = db.read(load_accounts).unwrap();
         assert_eq!(accounts[0].label, "Existing");
         assert!(accounts[0].device.is_none());
-        assert_eq!(db.read(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))).unwrap(), 3);
+        assert_eq!(db.read(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))).unwrap(), 4);
+    }
+
+    #[test]
+    fn version_3_defaults_device_to_disabled_and_preserves_saved_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let saved = serde_json::json!({
+            "deviceUuid":"old-device", "dfpId":"old-token", "exp":1, "ver":"0.0.2",
+            "version":"7.77.0", "fields":{"model":"Pixel 7"}
+        }).to_string();
+        {
+            let c = Connection::open(dir.path().join(FILE_NAME)).unwrap();
+            c.execute_batch(SCHEMA).unwrap();
+            c.execute_batch(MIGRATE_V2).unwrap();
+            c.execute_batch("ALTER TABLE accounts ADD COLUMN device TEXT; PRAGMA user_version = 3;").unwrap();
+            c.execute("INSERT INTO accounts (id, position, label, device_uuid, version, dfpid, created_at, device)
+                VALUES (?1, 0, 'Existing', 'old-device', '7.77.0', 'old-token', 5, ?2)",
+                params![uuid::Uuid::new_v4().to_string(), saved]).unwrap();
+        }
+        let db = Db::open(dir.path(), None).unwrap();
+        let account = db.read(load_accounts).unwrap().remove(0);
+        assert!(!account.device_enabled);
+        assert_eq!(account.dfpid.as_deref(), Some("old-token"));
+        assert_eq!(serde_json::to_value(account.device.unwrap()).unwrap(), serde_json::from_str::<serde_json::Value>(&saved).unwrap());
     }
 
     #[test]

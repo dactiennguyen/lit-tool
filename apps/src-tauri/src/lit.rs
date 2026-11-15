@@ -381,31 +381,28 @@ impl Serialize for CommandError {
     }
 }
 
-/// Signed request for one stored account. The sid is read from the secret store here
-/// and never leaves the backend.
+fn account_profile<'a>(account: &'a crate::accounts::Account, sid: &'a str, base_url: &'a str) -> LitProfile<'a> {
+    LitProfile {
+        sid,
+        uuid: account.request_uuid(),
+        version: &account.version,
+        user_id: account.user_id.as_deref(),
+        dfpid: account.request_dfpid(),
+        model: account.active_device().map(|d| d.model()),
+        base_url,
+    }
+}
+
+/// Signed request for one stored account. The sid never leaves the backend.
 pub(crate) async fn request_for_account(
     app: &tauri::AppHandle,
     account_id: uuid::Uuid,
     build: impl FnOnce(&LitProfile, SignOptions) -> Result<SignedRequest, LitError>,
 ) -> Result<serde_json::Value, CommandError> {
     use tauri::Manager;
-    // The secret read touches the disk, so keep it off the async workers.
-    let handle = app.clone();
-    let (account, sid) = tauri::async_runtime::spawn_blocking(move || {
-        handle.state::<crate::accounts::AccountRegistry>().with_session(account_id)
-    })
-    .await
-    .map_err(|e| LitError::Invalid(format!("Lỗi nội bộ: {e}")))??;
+    let (account, sid) = crate::dfpid::ensure(app, account_id).await.map_err(LitError::Invalid)?;
     let base_url = app.state::<crate::settings::SettingsStore>().get().api_base_url;
-    let profile = LitProfile {
-        sid: &sid,
-        uuid: &account.device_uuid,
-        version: &account.version,
-        user_id: account.user_id.as_deref(),
-        dfpid: account.dfpid.as_deref(),
-        model: account.device.as_ref().map(|d| d.model()),
-        base_url: &base_url,
-    };
+    let profile = account_profile(&account, &sid, &base_url);
     let request = build(&profile, SignOptions::fresh()?)?;
     Ok(send(request, account_id).await?)
 }
@@ -566,6 +563,32 @@ pub(crate) async fn sync_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_is_opt_in_for_headers_uuid_and_model() {
+        let mut account: crate::accounts::Account = serde_json::from_value(serde_json::json!({
+            "id":uuid::Uuid::new_v4(), "label":"Test", "deviceUuid":"session-uuid",
+            "version":"7.77.0", "dfpid":"saved-token", "createdAt":0,
+            "device": {"deviceUuid":"generated-uuid", "dfpId":"saved-token", "exp":1,
+                "version":"7.77.0", "ver":"0.0.2", "fields":{"model":"Generated model"}}
+        })).unwrap();
+        for enabled in [false, true, false] {
+            account.device_enabled = enabled;
+            let profile = account_profile(&account, "sid", "https://www.litatom.com");
+            assert_eq!(profile.model, enabled.then_some("Generated model"));
+            let req = build_get("user/get_info/me", &profile, &[], SignOptions::fresh().unwrap()).unwrap();
+            let query: std::collections::HashMap<_, _> = req.url.query_pairs().collect();
+            assert_eq!(query["uuid"], "session-uuid");
+            let headers: std::collections::HashMap<_, _> = req.headers.iter().cloned().collect();
+            assert_eq!(headers.get("X-DFPID").map(String::as_str), enabled.then_some("saved-token"));
+            assert_eq!(shadow_decode(&headers["X-Application-Info"]).unwrap(), req.url.query().unwrap());
+        }
+        account.device = None;
+        assert_eq!(account.request_dfpid(), None);
+        account.device_enabled = true;
+        assert_eq!(account.request_dfpid(), Some("saved-token"));
+        assert_eq!(account.request_uuid(), "session-uuid");
+    }
 
     // Expected values generated from scripts/src (TypeScript) with the same inputs.
     const IV: [u8; 16] = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];

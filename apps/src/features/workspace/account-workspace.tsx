@@ -180,11 +180,11 @@ function LoginPanel({
         {error && (
           <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-left text-sm">
             <p className="font-medium text-destructive">
-              {error.expired ? "Session đã hết hạn" : "Không đăng nhập được"}
+              {error.expired ? "Session không được chấp nhận" : "Không đăng nhập được"}
             </p>
             <p className="mt-0.5 text-xs break-words text-destructive/90">
               {error.expired
-                ? "Server yêu cầu đăng nhập lại. Lấy sid mới (cùng device UUID) từ máy đang đăng nhập rồi cập nhật cho account."
+                ? "Server trả result=-10 và yêu cầu đăng nhập lại. Kiểm tra sid cùng UUID của phiên gốc; nếu vừa bật hoặc xoay Thiết bị, hãy tắt và kiểm tra lại UUID. Mã này chưa xác định được nguyên nhân."
                 : error.message}
             </p>
           </div>
@@ -200,7 +200,7 @@ function LoginPanel({
               }}
             >
               <KeyRoundIcon aria-hidden />
-              Cập nhật sid
+              Cập nhật sid / UUID
             </Button>
           )}
           <Button onClick={onLogin} disabled={loading}>

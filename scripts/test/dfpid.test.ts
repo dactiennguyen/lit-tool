@@ -31,7 +31,7 @@ test('random DFP input maps identity fields, converts DRM bytes and preserves th
   assert.deepEqual(Object.keys(out.fields).sort(), Object.keys(deviceFields).filter(k => k !== '_meta').sort());
   assert.equal(out.query.uuid, out.fields.android_id_secure);
   assert.equal(out.query.model, out.fields.model);
-  assert.match(out.query.uuid!, /^[0-9a-f]{16}$/);
+  assert.equal(out.query.uuid, input.query.uuid);
   assert.ok(DEVICE_PRESETS.some(([brand, manufacturer, model]) =>
     out.fields.brand === brand && out.fields.manufacturer === manufacturer && out.fields.model === model));
   assert.match(String(out.fields.ad_aaid), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -49,6 +49,24 @@ test('random DFP input maps identity fields, converts DRM bytes and preserves th
   }
   for (const bad of [null, { query: {}, fields: {} }, { ...source, fields: { ...deviceFields, drmId: 123 } }]) {
     assert.throws(() => randomizeDfpInput(bad));
+  }
+});
+
+test('random DFP input keeps the supplied session UUID across rotations, and only creates one when absent', () => {
+  let source = { query: { ...input.query }, fields: { ...deviceFields } };
+  for (let i = 0; i < 5; i++) {
+    const out = randomizeDfpInput(source);
+    assert.equal(out.query.uuid, input.query.uuid);
+    assert.equal(out.fields.android_id_secure, input.query.uuid);
+    source = out as typeof source;
+  }
+  const { uuid, ...withoutUuid } = input.query;
+  const first = randomizeDfpInput({query: withoutUuid, fields: deviceFields});
+  assert.match(first.query.uuid!, /^[0-9a-f]{16}$/);
+  const again = randomizeDfpInput(first);
+  assert.equal(again.query.uuid, first.query.uuid);
+  for (const bad of ['', 'bad uuid', 123]) {
+    assert.throws(() => randomizeDfpInput({...input, query:{...input.query,uuid:bad}}));
   }
 });
 
@@ -176,6 +194,7 @@ globalThis.fetch = async (url, options) => {
     assert.deepEqual(saved.fields, request.fields);
     for (const [k, v] of Object.entries(saved.query)) assert.equal(request.query[k], v);
     assert.equal(saved.deviceUuid, saved.fields.android_id_secure);
+    assert.equal(saved.deviceUuid, input.query.uuid);
     assert.equal(saved.dfpId, 'random-test-token');
     assert.ok(!result.stdout.includes(saved.deviceUuid));
     assert.ok(!result.stdout.includes(saved.dfpId));

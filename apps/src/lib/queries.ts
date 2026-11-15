@@ -211,7 +211,7 @@ export function useSendText(accountId: string) {
 }
 
 export function useAccounts() {
-  return useQuery({ queryKey: queryKeys.accounts, queryFn: api.accounts.list });
+  return useQuery({ queryKey: queryKeys.accounts, queryFn: api.accounts.list, refetchInterval: 15_000 });
 }
 
 function useAccountsMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {

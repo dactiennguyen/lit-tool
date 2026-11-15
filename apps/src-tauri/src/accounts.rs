@@ -55,6 +55,8 @@ pub struct Account {
     pub dfpid: Option<String>,
     #[serde(default)]
     pub device: Option<crate::dfpid::DeviceSetup>,
+    #[serde(default)]
+    pub device_enabled: bool,
     pub created_at: u64,
     /// Session/device revision time (ms since epoch), invalidates the UI login state.
     pub session_saved_at: Option<u64>,
@@ -66,6 +68,20 @@ pub struct Account {
     /// first chat connection and kept. Not sent to the webview.
     #[serde(skip)]
     pub im_client: Option<Uuid>,
+}
+
+impl Account {
+    pub fn active_device(&self) -> Option<&crate::dfpid::DeviceSetup> {
+        self.device.as_ref().filter(|_| self.device_enabled)
+    }
+
+    pub fn request_uuid(&self) -> &str {
+        &self.device_uuid
+    }
+
+    pub fn request_dfpid(&self) -> Option<&str> {
+        if self.device_enabled { self.dfpid.as_deref() } else { None }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,6 +107,7 @@ fn legacy_hx_key(id: Uuid) -> String {
 pub struct NewAccount {
     pub label: String,
     pub user_id: Option<String>,
+    #[serde(default)]
     pub device_uuid: String,
     pub version: String,
     #[serde(default)]
@@ -99,12 +116,16 @@ pub struct NewAccount {
     pub dfpid: Option<String>,
     #[serde(default)]
     pub device: Option<crate::dfpid::DeviceSetup>,
+    #[serde(default)]
+    pub device_enabled: bool,
     pub sid: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountPatch {
+    pub device_enabled: Option<bool>,
+    pub device_uuid: Option<String>,
     pub label: Option<String>,
     /// absent = keep, `null` = clear, string = set.
     #[serde(default, deserialize_with = "present")]
@@ -271,6 +292,55 @@ impl AccountRegistry {
         self.accounts.lock().unwrap().clone()
     }
 
+    pub async fn add_prepared<F, Fut>(&self, mut input: NewAccount, generate: F) -> Result<Account>
+    where
+        F: FnOnce(String, String, Option<String>) -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<crate::dfpid::DeviceSetup, String>>,
+    {
+        input.label = clean_label(&input.label)?;
+        input.user_id = clean_user_id(input.user_id)?;
+        input.version = clean_version(&input.version)?;
+        input.sid = clean_sid(&input.sid)?;
+        let existing_uuid = if input.device_uuid.trim().is_empty() {
+            None
+        } else {
+            Some(clean_device_uuid(&input.device_uuid)?)
+        };
+        if input.device_enabled && input.device.is_none() {
+            input.device = Some(generate(input.version.clone(), input.sid.clone(), existing_uuid).await.map_err(AccountError::Invalid)?);
+        }
+        if let Some(device) = &input.device {
+            if input.device_uuid.trim().is_empty() && input.device_enabled {
+                input.device_uuid = device.device_uuid.clone();
+            }
+            input.dfpid = Some(device.dfp_id.clone());
+        }
+        self.add(input)
+    }
+
+    pub fn save_refreshed_device(&self, expected: &Account, sid: &str, device: crate::dfpid::DeviceSetup) -> Result<bool> {
+        device.validate(true).map_err(AccountError::Invalid)?;
+        if device.device_uuid != expected.request_uuid() || device.version != expected.version
+            || expected.device.as_ref().is_none_or(|old| old.fields != device.fields) {
+            return Err(AccountError::Invalid("Làm mới DFPID không được đổi thông tin thiết bị".into()));
+        }
+        let mut accounts = self.accounts.lock().unwrap();
+        let Some(index) = accounts.iter().position(|a| a.id == expected.id) else { return Ok(false); };
+        let current = &accounts[index];
+        if !current.device_enabled || current.device_enabled != expected.device_enabled
+            || current.device != expected.device || current.version != expected.version
+            || current.device_uuid != expected.device_uuid || current.session_saved_at != expected.session_saved_at
+            || self.sessions.lock().unwrap().get(&expected.id).is_none_or(|s| s != sid) {
+            return Ok(false);
+        }
+        let mut account = current.clone();
+        account.dfpid = Some(device.dfp_id.clone());
+        account.device = Some(device);
+        self.db.write(|tx| db::update_account(tx, &account))?;
+        accounts[index] = account;
+        Ok(true)
+    }
+
     pub fn add(&self, input: NewAccount) -> Result<Account> {
         let label = clean_label(&input.label)?;
         let user_id = clean_user_id(input.user_id)?;
@@ -281,7 +351,7 @@ impl AccountRegistry {
         let sid = clean_sid(&input.sid)?;
         if let Some(device) = &input.device {
             device.validate(true).map_err(AccountError::Invalid)?;
-            if device.device_uuid != device_uuid || device.version != version || Some(&device.dfp_id) != dfpid.as_ref() {
+            if (input.device_enabled && (device.version != version || device.device_uuid != device_uuid)) || Some(&device.dfp_id) != dfpid.as_ref() {
                 return Err(AccountError::Invalid("UUID, version và DFPID phải khớp JSON thiết bị".into()));
             }
         }
@@ -300,6 +370,7 @@ impl AccountRegistry {
             siua,
             dfpid,
             device: input.device,
+            device_enabled: input.device_enabled,
             created_at: now,
             session_saved_at: Some(now),
             im: None,
@@ -322,6 +393,12 @@ impl AccountRegistry {
         let mut account = accounts[index].clone();
         let version_changed = patch.version.is_some();
         let token_changed = patch.dfpid.is_some();
+        if let Some(enabled) = patch.device_enabled {
+            account.device_enabled = enabled;
+        }
+        if let Some(uuid) = patch.device_uuid {
+            account.device_uuid = clean_device_uuid(&uuid)?;
+        }
 
         if let Some(label) = patch.label {
             account.label = clean_label(&label)?;
@@ -340,11 +417,11 @@ impl AccountRegistry {
         }
         if let Some(device) = patch.device {
             device.validate(true).map_err(AccountError::Invalid)?;
-            if (version_changed && account.version != device.version)
+            if device.device_uuid != account.device_uuid
+                || (version_changed && account.version != device.version)
                 || (token_changed && account.dfpid.as_ref() != Some(&device.dfp_id)) {
-                return Err(AccountError::Invalid("Version và DFPID phải khớp JSON thiết bị".into()));
+                return Err(AccountError::Invalid("UUID, version và DFPID phải khớp JSON thiết bị".into()));
             }
-            account.device_uuid = device.device_uuid.clone();
             account.dfpid = Some(device.dfp_id.clone());
             account.version = clean_version(&device.version)?;
             account.device = Some(device);
@@ -353,13 +430,14 @@ impl AccountRegistry {
             return Err(AccountError::Duplicate);
         }
         if let Some(device) = &account.device {
-            if device.version != account.version || Some(&device.dfp_id) != account.dfpid.as_ref() {
-                return Err(AccountError::Invalid("Hãy lấy lại DFPID cùng version và JSON thiết bị".into()));
+            if (account.device_enabled && (device.version != account.version || device.device_uuid != account.device_uuid)) || Some(&device.dfp_id) != account.dfpid.as_ref() {
+                return Err(AccountError::Invalid("Hãy làm mới DFPID để JSON khớp UUID và version của account".into()));
             }
         }
         let sid = patch.sid.as_deref().map(clean_sid).transpose()?;
-        if sid.is_some() || account.device_uuid != accounts[index].device_uuid {
-            account.session_saved_at = Some(now_ms());
+        if sid.is_some() || account.device_uuid != accounts[index].device_uuid
+            || account.device_enabled != accounts[index].device_enabled {
+            account.session_saved_at = Some(now_ms().max(accounts[index].session_saved_at.unwrap_or(0).saturating_add(1)));
         }
 
         self.db.write(|tx| -> Result<()> {
@@ -378,7 +456,8 @@ impl AccountRegistry {
 
     /// Account plus its sid, for signing requests inside the backend only.
     pub fn with_session(&self, id: Uuid) -> Result<(Account, String)> {
-        let account = self.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+        let accounts = self.accounts.lock().unwrap();
+        let account = accounts.iter().find(|a| a.id == id).cloned().ok_or(AccountError::NotFound)?;
         if let Some(sid) = self.sessions.lock().unwrap().get(&id) {
             return Ok((account, sid.clone()));
         }
@@ -484,16 +563,18 @@ pub fn accounts_list(registry: State<'_>) -> Vec<Account> {
     registry.list()
 }
 
-#[tauri::command(async)]
-pub fn accounts_add(registry: State<'_>, input: NewAccount) -> Result<Account> {
-    registry.add(input)
+#[tauri::command]
+pub async fn accounts_add(registry: State<'_>, input: NewAccount) -> Result<Account> {
+    registry.add_prepared(input, |version, sid, uuid| async move {
+        crate::dfpid::generate_new(version, &sid, uuid.as_deref()).await
+    }).await
 }
 
 #[tauri::command(async)]
 pub fn accounts_update(app: tauri::AppHandle, registry: State<'_>, id: Uuid, patch: AccountPatch) -> Result<Account> {
-    let rotating = patch.device.as_ref().is_some_and(|d| registry.list().iter().any(|a| a.id == id && a.device_uuid != d.device_uuid));
+    let before = registry.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
     let account = registry.update(id, patch)?;
-    if rotating { crate::listen::stop(&app, id); }
+    if before.session_saved_at != account.session_saved_at { crate::listen::stop(&app, id); }
     Ok(account)
 }
 
@@ -522,6 +603,7 @@ mod tests {
             siua: None,
             dfpid: Some(" DFP1 ".into()),
             device: None,
+            device_enabled: false,
             sid: "secret-sid".into(),
         }
     }
@@ -535,6 +617,112 @@ mod tests {
         db.secret(key).unwrap()
     }
 
+    #[tokio::test]
+    async fn default_add_never_generates_a_device_and_keeps_the_session_uuid() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(dir.path());
+        let input = serde_json::from_value(serde_json::json!({
+            "label":"Default", "deviceUuid":"original-uuid", "version":"7.77.0", "sid":"original-sid"
+        })).unwrap();
+        let account = reg.add_prepared(input, |_, _, _| async { panic!("disabled must not call Eye") }).await.unwrap();
+        assert!(!account.device_enabled);
+        assert!(account.device.is_none());
+        assert_eq!(account.request_uuid(), "original-uuid");
+        assert!(account.request_dfpid().is_none());
+        let (fresh, _) = registry(dir.path());
+        assert_eq!(fresh.list(), vec![account]);
+    }
+
+    #[test]
+    fn toggle_preserves_saved_device_and_restores_session_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(dir.path());
+        let account = reg.add(input("original-uuid")).unwrap();
+        let patch = |value| serde_json::from_value::<AccountPatch>(value).unwrap();
+        let active = reg.update(account.id, patch(serde_json::json!({
+            "deviceEnabled":true, "device":{
+                "deviceUuid":"original-uuid", "dfpId":"generated-token", "exp":now_ms()+60_000,
+                "version":"7.77.0", "ver":"0.0.2", "fields":{
+                    "model":"Pixel 7", "cpu_abi":"arm64-v8a", "android_id_secure":"original-uuid"
+                }
+            }
+        }))).unwrap();
+        assert_eq!(active.device_uuid, "original-uuid");
+        assert_eq!(active.request_uuid(), "original-uuid");
+        assert!(active.session_saved_at > account.session_saved_at);
+        let disabled = reg.update(account.id, patch(serde_json::json!({"deviceEnabled":false}))).unwrap();
+        assert_eq!(disabled.request_uuid(), "original-uuid");
+        assert_eq!(disabled.request_dfpid(), None);
+        assert_eq!(disabled.device, active.device);
+        assert_eq!(disabled.dfpid, active.dfpid);
+        assert!(disabled.session_saved_at > active.session_saved_at);
+        assert_eq!(registry(dir.path()).0.list(), vec![disabled.clone()]);
+        let restored = reg.update(account.id, patch(serde_json::json!({"deviceEnabled":true}))).unwrap();
+        assert_eq!(restored.request_uuid(), "original-uuid");
+        assert_eq!(restored.device, active.device);
+        let corrected = reg.update(account.id, patch(serde_json::json!({
+            "deviceEnabled":false, "deviceUuid":"correct-session-uuid", "sid":"new-sid", "version":"7.78.0"
+        }))).unwrap();
+        assert_eq!(corrected.request_uuid(), "correct-session-uuid");
+        assert_eq!(corrected.device, active.device);
+        assert_eq!(reg.with_session(account.id).unwrap().1, "new-sid");
+        assert!(reg.update(account.id, patch(serde_json::json!({"deviceEnabled":true}))).is_err());
+    }
+
+    #[tokio::test]
+    async fn add_with_existing_uuid_passes_it_to_generator_and_rejects_a_different_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(dir.path());
+        let mut new = input("existing-uuid");
+        new.device_enabled = true;
+        let account = reg.add_prepared(new, |version, _, uuid| async move {
+            assert_eq!(uuid.as_deref(), Some("existing-uuid"));
+            Ok(serde_json::from_value(serde_json::json!({
+                "deviceUuid":uuid,"dfpId":"token","exp":now_ms()+60_000,"ver":"0.0.2","version":version,
+                "fields":{"android_id_secure":"existing-uuid","model":"Pixel 7","cpu_abi":"arm64-v8a"}
+            })).unwrap())
+        }).await.unwrap();
+        assert_eq!(account.request_uuid(), "existing-uuid");
+        assert_eq!(account.device.as_ref().unwrap().device_uuid, "existing-uuid");
+        let mut wrong = input("another-uuid");
+        wrong.device_enabled = true;
+        let device = account.device.clone().unwrap();
+        assert!(reg.add_prepared(wrong, |_, _, _| async { Ok(device) }).await.is_err());
+        assert_eq!(reg.list().len(), 1);
+        assert_eq!(registry(dir.path()).0.list(), vec![account]);
+    }
+
+    #[tokio::test]
+    async fn automatic_add_generates_once_and_never_saves_half_an_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, _) = registry(dir.path());
+        let mut new = input("");
+        new.dfpid = None;
+        new.device_enabled = true;
+        let account = reg.add_prepared(new, |version, sid, uuid| async move {
+            assert_eq!(sid, "secret-sid");
+            assert!(uuid.is_none());
+            Ok(serde_json::from_value(serde_json::json!({
+                "deviceUuid":"automatic-device", "dfpId":"automatic-token", "exp":now_ms()+60_000,
+                "version":version, "ver":"0.0.2", "fields":{
+                    "android_id_secure":"automatic-device","model":"Pixel 7","cpu_abi":"arm64-v8a"
+                }
+            })).unwrap())
+        }).await.unwrap();
+        assert_eq!(account.device_uuid, "automatic-device");
+        assert_eq!(account.dfpid.as_deref(), Some("automatic-token"));
+        assert_eq!(reg.with_session(account.id).unwrap().1, "secret-sid");
+        let (reopened, _) = registry(dir.path());
+        assert_eq!(reopened.list(), vec![account]);
+        let mut failed = input("");
+        failed.device_enabled = true;
+        assert!(reg.add_prepared(failed, |_, _, _| async { Err("Eye unavailable".into()) }).await.is_err());
+        assert_eq!(reg.list().len(), 1);
+        let mut bad = input("");
+        bad.sid = "".into();
+        assert!(reg.add_prepared(bad, |_, _, _| async { panic!("invalid form must not call Eye") }).await.is_err());
+    }
+
     #[test]
     fn device_payload_and_token_persist_together_and_rotation_is_atomic() {
         let dir = tempfile::tempdir().unwrap();
@@ -546,6 +734,7 @@ mod tests {
         let mut new = input("device-a");
         new.dfpid = Some(device.dfp_id.clone());
         new.device = Some(device.clone());
+        new.device_enabled = true;
         let first = reg.add(new).unwrap();
         let second = reg.add(input("device-b")).unwrap();
         drop((reg, db));
@@ -555,11 +744,17 @@ mod tests {
         rotated.device_uuid = "device-b".into();
         rotated.fields.insert("android_id_secure".into(), "device-b".into());
         let patch = |d: &crate::dfpid::DeviceSetup| serde_json::from_value::<AccountPatch>(serde_json::json!({"device":d})).unwrap();
-        assert!(matches!(reg.update(first.id, patch(&rotated)), Err(AccountError::Duplicate)));
+        assert!(matches!(reg.update(first.id, patch(&rotated)), Err(AccountError::Invalid(_))));
         assert_eq!(reg.list()[0], first);
         reg.remove(second.id).unwrap();
+        assert!(reg.update(first.id, patch(&rotated)).is_err());
+        rotated.device_uuid = "device-a".into();
+        rotated.fields.insert("android_id_secure".into(), "device-a".into());
+        rotated.fields.insert("model".into(), "Pixel 8 Pro".into());
+        rotated.dfp_id = "rotated-token".into();
         let updated = reg.update(first.id, patch(&rotated)).unwrap();
-        assert_eq!(updated.device_uuid, "device-b");
+        assert_eq!(updated.device_uuid, "device-a");
+        assert_eq!(updated.request_uuid(), "device-a");
         assert_eq!(updated.device.as_ref(), Some(&rotated));
         let bad: AccountPatch = serde_json::from_value(serde_json::json!({"dfpid":"mismatched-token"})).unwrap();
         assert!(reg.update(first.id, bad).is_err());
@@ -623,6 +818,8 @@ mod tests {
         let acc = reg.add(input("dev-1")).unwrap();
         let updated = reg
             .update(acc.id, AccountPatch {
+                device_enabled: None,
+                device_uuid: None,
                 label: Some("Renamed".into()),
                 user_id: Some(Some("10".into())),
                 version: None,
@@ -639,7 +836,7 @@ mod tests {
         assert_eq!(reg.with_session(acc.id).unwrap().1, "new-sid");
         assert_eq!(secret(&db, &acc.id.to_string()).as_deref(), Some("new-sid"));
 
-        let bad = AccountPatch { label: Some("".into()), user_id: None, version: None, siua: None, dfpid: None, sid: None, device: None };
+        let bad = AccountPatch { device_enabled: None, device_uuid: None, label: Some("".into()), user_id: None, version: None, siua: None, dfpid: None, sid: None, device: None };
         assert!(reg.update(acc.id, bad).is_err());
         assert_eq!(reg.list()[0].label, "Renamed");
 

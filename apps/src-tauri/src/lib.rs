@@ -34,7 +34,9 @@ pub fn run() {
             app.manage(SettingsStore::open(db)?);
             app.manage(chat::HxTokens::default());
             app.manage(listen::Listeners::default());
+            app.manage(dfpid::DeviceRefresh::default());
             http::init(app.handle());
+            dfpid::start(app.handle());
             update::start(app.handle());
             Ok(())
         })

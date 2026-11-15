@@ -40,14 +40,14 @@ export interface AccountFormValues {
 
 export type AccountFormErrors = Partial<Record<keyof AccountFormValues, string>>;
 
-export function validateAccountForm(v: AccountFormValues, opts: { sidRequired: boolean }): AccountFormErrors {
+export function validateAccountForm(v: AccountFormValues, opts: { sidRequired: boolean; automaticDevice?: boolean }): AccountFormErrors {
   const errors: AccountFormErrors = {};
   const label = v.label.trim();
   if (!label || charCount(label) > 64) errors.label = "Nhập tên từ 1 đến 64 ký tự";
 
   const device = v.deviceUuid.trim();
-  if (!device) errors.deviceUuid = "Bắt buộc";
-  else if (!TOKEN.test(device) || device.length > 128) errors.deviceUuid = "Chỉ gồm chữ, số, _ và - (tối đa 128)";
+  if (!device && !opts.automaticDevice) errors.deviceUuid = "Bắt buộc";
+  else if (device && (!TOKEN.test(device) || device.length > 128)) errors.deviceUuid = "Chỉ gồm chữ, số, _ và - (tối đa 128)";
 
   const version = v.version.trim();
   if (!version || !VERSION.test(version) || version.length > 64) errors.version = "Ví dụ: 7.77.0";

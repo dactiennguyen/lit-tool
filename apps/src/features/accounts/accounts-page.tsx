@@ -117,7 +117,8 @@ export function AccountsPage() {
         </ScrollArea>
       )}
 
-      <AccountFormDialog key={formKey} open={formOpen} onOpenChange={setFormOpen} account={editing} />
+      <AccountFormDialog key={formKey} open={formOpen} onOpenChange={setFormOpen}
+        account={editing ? accounts?.find((a) => a.id === editing.id) ?? editing : null} />
       <RemoveAccountDialog account={removing} onClose={() => setRemoving(null)} />
     </>
   );

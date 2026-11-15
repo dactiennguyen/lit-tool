@@ -9,7 +9,133 @@ use serde_json::{Map, Value};
 use tauri::Manager;
 use uuid::Uuid;
 
-use crate::{accounts::AccountRegistry, http, store::now_ms};
+use crate::{
+    accounts::{Account, AccountRegistry},
+    http,
+    store::now_ms,
+};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+pub struct DeviceRefresh {
+    slots: Mutex<HashMap<Uuid, Arc<tokio::sync::Mutex<Option<RefreshFailure>>>>>,
+}
+
+struct RefreshFailure {
+    identity: (String, String, Option<u64>),
+    retry_at: u64,
+    message: String,
+}
+
+impl DeviceRefresh {
+    async fn ensure_with<F, Fut>(
+        &self,
+        registry: &AccountRegistry,
+        id: Uuid,
+        fetch: F,
+    ) -> Result<(Account, String), String>
+    where
+        F: FnOnce(Fields, String, String, Uuid) -> Fut,
+        Fut: std::future::Future<Output = Result<DeviceSetup, String>>,
+    {
+        let slot = self.slots.lock().unwrap().entry(id).or_default().clone();
+        let mut failure = slot.lock().await;
+        let (account, sid) = registry.with_session(id).map_err(|e| e.to_string())?;
+        let Some(device) = account.active_device() else {
+            return Ok((account, sid));
+        };
+        if device.device_uuid != account.device_uuid {
+            return Err("JSON thiết bị khác UUID phiên; hãy làm mới DFPID trước khi bật thiết bị".into());
+        }
+        if device.exp > now_ms() {
+            *failure = None;
+            return Ok((account, sid));
+        }
+        let identity = (
+            account.request_uuid().to_owned(),
+            account.version.clone(),
+            account.session_saved_at,
+        );
+        if let Some(previous) = failure
+            .as_ref()
+            .filter(|f| f.identity == identity && f.retry_at > now_ms())
+        {
+            return Err(previous.message.clone());
+        }
+        match fetch(
+            device.fields.clone(),
+            account.version.clone(),
+            sid.clone(),
+            id,
+        )
+        .await
+        {
+            Ok(device) => {
+                *failure = None;
+                registry
+                    .save_refreshed_device(&account, &sid, device)
+                    .map_err(|e| e.to_string())?;
+                let current = registry.with_session(id).map_err(|e| e.to_string())?;
+                if current.0.active_device().is_some_and(|d| d.exp <= now_ms()) {
+                    return Err(
+                        "Thiết bị/session đã thay đổi trong lúc làm mới DFPID; hãy thử lại".into(),
+                    );
+                }
+                Ok(current)
+            }
+            Err(message) => {
+                let message =
+                    format!("Chưa làm mới được DFPID: {message}. Tự thử lại sau 30 giây.");
+                *failure = Some(RefreshFailure {
+                    identity,
+                    retry_at: now_ms() + 30_000,
+                    message: message.clone(),
+                });
+                Err(message)
+            }
+        }
+    }
+}
+
+pub async fn ensure(app: &tauri::AppHandle, id: Uuid) -> Result<(Account, String), String> {
+    let registry = app.state::<AccountRegistry>();
+    let result = app
+        .state::<DeviceRefresh>()
+        .ensure_with(&registry, id, |fields, version, sid, id| async move {
+            let device = fetch_device(fields, version, &sid, Some(id)).await?;
+            Ok(device)
+        })
+        .await?;
+    Ok(result)
+}
+
+pub fn start(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut timer = tokio::time::interval(Duration::from_secs(30));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            timer.tick().await;
+            let accounts = app.state::<AccountRegistry>().list();
+            app.state::<DeviceRefresh>()
+                .slots
+                .lock()
+                .unwrap()
+                .retain(|id, _| accounts.iter().any(|a| a.id == *id));
+            for account in accounts {
+                if account.active_device().is_some_and(|d| d.exp <= now_ms()) {
+                    let _ = ensure(&app, account.id).await;
+                }
+            }
+        }
+    });
+}
+
+pub async fn generate_new(version: String, sid: &str, uuid: Option<&str>) -> Result<DeviceSetup, String> {
+    let fields = prepare_device_fields(None, true, uuid)?;
+    fetch_device(fields, version, sid, None).await
+}
 
 pub type Fields = Map<String, Value>;
 const TEMPLATE: &str = include_str!("../../../scripts/devices_info.json");
@@ -75,6 +201,7 @@ impl DeviceSetup {
 #[serde(rename_all = "camelCase")]
 pub struct DeviceRequest {
     pub account_id: Option<Uuid>,
+    pub device_uuid: Option<String>,
     pub sid: Option<String>,
     pub version: String,
     pub fields: Option<Fields>,
@@ -126,11 +253,15 @@ fn choice(length: usize) -> Result<usize, String> {
     }
 }
 
-pub fn randomize(mut fields: Fields) -> Result<Fields, String> {
+pub fn randomize(mut fields: Fields, uuid: Option<&str>) -> Result<Fields, String> {
     fields.remove("_meta");
     validate_fields(&fields)?;
     let [brand, manufacturer, model] = MODELS[choice(MODELS.len())?];
-    let android_id: String = bytes::<8>()?.iter().map(|b| format!("{b:02x}")).collect();
+    let android_id = match uuid {
+        Some(id) if crate::lit::is_id(id) && id.len() <= 128 => id.to_owned(),
+        Some(_) => return Err("UUID thiết bị không hợp lệ".into()),
+        None => bytes::<8>()?.iter().map(|b| format!("{b:02x}")).collect(),
+    };
     let alphabet = b"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     let serial: String = (0..12)
         .map(|_| choice(alphabet.len()).map(|i| alphabet[i] as char))
@@ -238,35 +369,53 @@ pub async fn device_generate(
     {
         return Err("Version không hợp lệ".into());
     }
-    let sid = match input.sid.filter(|s| !s.trim().is_empty()) {
-        Some(s) => s.trim().to_owned(),
-        None => {
-            let id = input.account_id.ok_or("Nhập session trước khi lấy DFPID")?;
-            tauri::async_runtime::spawn_blocking(move || {
-                app.state::<AccountRegistry>().with_session(id)
-            })
-            .await
-            .map_err(|_| "Không đọc được session")?
-            .map_err(|e| e.to_string())?
-            .1
-        }
-    };
+    let provided_sid = input.sid.filter(|s| !s.trim().is_empty()).map(|s| s.trim().to_owned());
+    let saved = if let Some(id) = input.account_id {
+        let sid = provided_sid.clone();
+        Some(tauri::async_runtime::spawn_blocking(move || {
+            generation_context(&app.state::<AccountRegistry>(), id, sid)
+        }).await.map_err(|_| "Không đọc được account")??)
+    } else { None };
+    let uuid = input.device_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        .or_else(|| saved.as_ref().map(|(account, _)| account.device_uuid.as_str()));
+    let sid = provided_sid
+        .or_else(|| saved.as_ref().map(|(_, sid)| sid.clone()))
+        .ok_or("Nhập session trước khi lấy DFPID")?;
     if sid.len() > 4096 || sid.chars().any(char::is_control) {
         return Err("Session không hợp lệ".into());
     }
-    let mut fields = match input.fields {
+    let fields = prepare_device_fields(input.fields, input.random, uuid)?;
+    fetch_device(fields, version, &sid, input.account_id).await
+}
+
+fn generation_context(registry: &AccountRegistry, id: Uuid, sid: Option<String>) -> Result<(Account, String), String> {
+    match sid {
+        Some(sid) => registry.list().into_iter().find(|a| a.id == id)
+            .map(|account| (account, sid)).ok_or_else(|| "Không tìm thấy account".into()),
+        None => registry.with_session(id).map_err(|e| e.to_string()),
+    }
+}
+
+fn prepare_device_fields(source: Option<Fields>, random: bool, uuid: Option<&str>) -> Result<Fields, String> {
+    let existing = uuid.map(str::to_owned).or_else(|| {
+        source.as_ref().and_then(|f| f.get("android_id_secure")).and_then(Value::as_str).map(str::to_owned)
+    });
+    if existing.as_deref().is_some_and(|id| !crate::lit::is_id(id) || id.len() > 128) {
+        return Err("UUID thiết bị không hợp lệ".into());
+    }
+    let mut fields = match source {
         Some(fields) => fields,
-        None if input.random => {
-            serde_json::from_str(TEMPLATE).map_err(|_| "Mẫu thiết bị không hợp lệ")?
-        }
+        None if random => serde_json::from_str(TEMPLATE).map_err(|_| "Mẫu thiết bị không hợp lệ")?,
         None => return Err("Chưa có JSON thiết bị để làm mới DFPID".into()),
     };
     fields.remove("_meta");
-    if input.random {
-        fields = randomize(fields)?;
+    if random {
+        fields = randomize(fields, existing.as_deref())?;
+    } else if let Some(id) = existing {
+        fields.insert("android_id_secure".into(), id.into());
     }
     validate_fields(&fields)?;
-    fetch_device(fields, version, &sid, input.account_id).await
+    Ok(fields)
 }
 
 async fn fetch_device(
@@ -308,6 +457,202 @@ mod tests {
     use super::*;
     use aes::cipher::BlockModeDecrypt;
     use std::io::Read;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn saved_fixture() -> (tempfile::TempDir, Arc<AccountRegistry>, Uuid) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::open_temp(dir.path());
+        let reg = AccountRegistry::open(db.clone()).unwrap();
+        let device = fresh(sample(), "7.77.0".into());
+        let input = serde_json::from_value(serde_json::json!({
+            "label":"Test", "deviceUuid":device.device_uuid, "version":device.version,
+            "dfpid":device.dfp_id, "device":device, "deviceEnabled":true, "sid":"test-sid"
+        }))
+        .unwrap();
+        let mut account = reg.add(input).unwrap();
+        account.device.as_mut().unwrap().exp = 1;
+        db.write(|tx| crate::db::update_account(tx, &account))
+            .unwrap();
+        (
+            dir,
+            Arc::new(AccountRegistry::open(db).unwrap()),
+            account.id,
+        )
+    }
+
+    fn fresh(fields: Fields, version: String) -> DeviceSetup {
+        DeviceSetup {
+            device_uuid: text(&fields, "android_id_secure").unwrap().into(),
+            dfp_id: "refreshed-token".into(),
+            exp: now_ms() + 60_000,
+            ver: "0.0.2".into(),
+            fields,
+            version,
+        }
+    }
+
+    #[test]
+    fn generation_can_use_a_new_sid_when_the_saved_secret_is_missing() {
+        let (dir, reg, id) = saved_fixture();
+        let original = reg.list()[0].clone();
+        drop(reg);
+        let db = crate::db::open_temp(dir.path());
+        db.write(|tx| crate::db::put_secret(tx, &id.to_string(), None)).unwrap();
+        let registry = AccountRegistry::open(db).unwrap();
+        assert!(generation_context(&registry, id, None).is_err());
+        let (account, sid) = generation_context(&registry, id, Some("replacement-sid".into())).unwrap();
+        assert_eq!(sid, "replacement-sid");
+        assert_eq!(account, original);
+        assert!(generation_context(&registry, Uuid::new_v4(), Some(sid)).is_err());
+        assert!(registry.with_session(id).is_err());
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_refresh_once_and_persist_before_using_the_token() {
+        let (dir, reg, id) = saved_fixture();
+        let before = reg.list()[0].device.clone().unwrap().fields;
+        let refresh = Arc::new(DeviceRefresh::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..12 {
+            let (reg, refresh, calls) = (reg.clone(), refresh.clone(), calls.clone());
+            tasks.spawn(async move {
+                refresh
+                    .ensure_with(&reg, id, |fields, version, sid, _| async move {
+                        assert_eq!(sid, "test-sid");
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        Ok(fresh(fields, version))
+                    })
+                    .await
+                    .unwrap()
+            });
+        }
+        while let Some(result) = tasks.join_next().await {
+            let (account, _) = result.unwrap();
+            assert_eq!(account.dfpid.as_deref(), Some("refreshed-token"));
+            assert!(account.device.unwrap().exp > now_ms());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let reopened = AccountRegistry::open(crate::db::open_temp(dir.path())).unwrap();
+        assert_eq!(reopened.list()[0].device.as_ref().unwrap().fields, before);
+        assert!(reopened.list()[0].device.as_ref().unwrap().exp > now_ms());
+        assert_eq!(
+            reopened.list()[0].device_uuid,
+            text(&before, "android_id_secure").unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_device_never_refreshes_even_when_expired() {
+        let (_dir, reg, id) = saved_fixture();
+        let before = reg.update(id, serde_json::from_value(serde_json::json!({"deviceEnabled":false})).unwrap()).unwrap();
+        let refresh = DeviceRefresh::default();
+        let (account, _) = refresh.ensure_with(&reg, id, |_, _, _, _| async {
+            panic!("disabled must not call Eye")
+        }).await.unwrap();
+        assert_eq!(account, before);
+        assert!(account.active_device().is_none());
+    }
+
+    #[tokio::test]
+    async fn disabling_during_refresh_discards_the_response() {
+        let (_dir, reg, id) = saved_fixture();
+        let before = reg.list()[0].device.clone();
+        let refresh = DeviceRefresh::default();
+        let (account, _) = refresh.ensure_with(&reg, id, |fields, version, _, _| async {
+            reg.update(id, serde_json::from_value(serde_json::json!({"deviceEnabled":false})).unwrap()).unwrap();
+            Ok(fresh(fields, version))
+        }).await.unwrap();
+        assert!(!account.device_enabled);
+        assert_eq!(account.device, before);
+        assert!(account.request_dfpid().is_none());
+    }
+
+    #[tokio::test]
+    async fn failure_preserves_device_and_uses_cooldown_then_retries() {
+        let (_dir, reg, id) = saved_fixture();
+        let before = reg.list()[0].clone();
+        let refresh = DeviceRefresh::default();
+        let calls = AtomicUsize::new(0);
+        for _ in 0..3 {
+            let result = refresh
+                .ensure_with(&reg, id, |_, _, _, _| async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Err("offline".into())
+                })
+                .await;
+            assert!(result.unwrap_err().contains("offline"));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(reg.list()[0], before);
+        let slot = refresh.slots.lock().unwrap()[&id].clone();
+        slot.lock().await.as_mut().unwrap().retry_at = 0;
+        let (account, _) = refresh
+            .ensure_with(&reg, id, |f, v, _, _| async { Ok(fresh(f, v)) })
+            .await
+            .unwrap();
+        assert!(account.device.unwrap().exp > now_ms());
+    }
+
+    #[tokio::test]
+    async fn in_flight_refresh_cannot_overwrite_rotation_or_recreate_removed_account() {
+        let (_dir, reg, id) = saved_fixture();
+        let refresh = DeviceRefresh::default();
+        let (result, _) = refresh
+            .ensure_with(&reg, id, |fields, version, _, _| async {
+                let mut rotated = fields.clone();
+                rotated.insert("model".into(), "Rotated model".into());
+                let patch = serde_json::from_value(
+                    serde_json::json!({"device":fresh(rotated, version.clone())}),
+                )
+                .unwrap();
+                reg.update(id, patch).unwrap();
+                Ok(fresh(fields, version))
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.device.unwrap().model(), "Rotated model");
+        let (_dir2, reg2, id2) = saved_fixture();
+        assert!(
+            refresh
+                .ensure_with(&reg2, id2, |fields, version, _, _| async {
+                    reg2.remove(id2).unwrap();
+                    Ok(fresh(fields, version))
+                })
+                .await
+                .is_err()
+        );
+        assert!(reg2.list().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_change_during_refresh_rejects_the_old_response() {
+        let (_dir, reg, id) = saved_fixture();
+        let refresh = DeviceRefresh::default();
+        assert!(
+            refresh
+                .ensure_with(&reg, id, |fields, version, _, _| async {
+                    reg.update(
+                        id,
+                        serde_json::from_value(serde_json::json!({"sid":"changed-session"}))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    Ok(fresh(fields, version))
+                })
+                .await
+                .is_err()
+        );
+        assert_eq!(reg.list()[0].device.as_ref().unwrap().exp, 1);
+        refresh
+            .ensure_with(&reg, id, |fields, version, sid, _| async move {
+                assert_eq!(sid, "changed-session");
+                Ok(fresh(fields, version))
+            })
+            .await
+            .unwrap();
+    }
 
     fn decode(token: &str) -> Value {
         let compressed = cbc::Decryptor::<aes::Aes128>::new(&KEY.into(), &IV.into())
@@ -327,22 +672,92 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn creation_rotation_and_refresh_keep_existing_uuid_in_payload_and_query() {
+        let id = "existing-session-uuid";
+        let mut fields = prepare_device_fields(None, true, Some(id)).unwrap();
+        for _ in 0..8 {
+            fields = prepare_device_fields(Some(fields), true, Some(id)).unwrap();
+            assert_eq!(text(&fields, "android_id_secure").unwrap(), id);
+            let url = eye_url(&fields, "7.77.0", "sid").unwrap();
+            assert_eq!(url.query_pairs().find(|(k, _)| k == "uuid").unwrap().1, id);
+        }
+        assert_eq!(prepare_device_fields(Some(fields.clone()), false, Some(id)).unwrap(), fields);
+        let repaired = prepare_device_fields(Some(sample()), false, Some(id)).unwrap();
+        assert_eq!(text(&repaired, "android_id_secure").unwrap(), id);
+        let first = prepare_device_fields(None, true, None).unwrap();
+        let uuid = text(&first, "android_id_secure").unwrap().to_owned();
+        assert_eq!(uuid.len(), 16);
+        let next = prepare_device_fields(Some(first), true, None).unwrap();
+        assert_eq!(text(&next, "android_id_secure").unwrap(), uuid);
+        assert!(prepare_device_fields(None, true, Some("bad uuid")).is_err());
+    }
+
     #[tokio::test]
     #[ignore = "requires LIT_DFPID_SMOKE_INPUT pointing to an authorized account config"]
     async fn live_eye_issues_token_for_rust_payload() {
         let path = std::env::var("LIT_DFPID_SMOKE_INPUT").expect("set LIT_DFPID_SMOKE_INPUT");
         let config: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        let fields = randomize(serde_json::from_str(TEMPLATE).unwrap()).unwrap();
-        let device = fetch_device(
-            fields,
-            config["query"]["version"].as_str().unwrap().into(),
-            config["query"]["sid"].as_str().unwrap(),
-            None,
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::open_temp(dir.path());
+        let registry = AccountRegistry::open(db.clone()).unwrap();
+        let input = serde_json::from_value(serde_json::json!({
+            "label":"DFPID lifecycle test", "deviceEnabled":true, "version":config["query"]["version"], "sid":config["query"]["sid"]
+        })).unwrap();
+        let mut account = registry
+            .add_prepared(input, |version, sid, uuid| async move {
+                generate_new(version, &sid, uuid.as_deref()).await
+            })
+            .await
+            .unwrap();
+        let fields = account.device.as_ref().unwrap().fields.clone();
+        assert_eq!(fields.len(), 198);
+        account.device.as_mut().unwrap().exp = 1;
+        db.write(|tx| crate::db::update_account(tx, &account))
+            .unwrap();
+        let registry = AccountRegistry::open(db.clone()).unwrap();
+        let refresh = DeviceRefresh::default();
+        let (fresh, sid) = refresh
+            .ensure_with(
+                &registry,
+                account.id,
+                |fields, version, sid, id| async move {
+                    fetch_device(fields, version, &sid, Some(id)).await
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(fresh.device.as_ref().unwrap().fields, fields);
+        fresh.device.as_ref().unwrap().validate(true).unwrap();
+        let profile = crate::lit::LitProfile {
+            sid: &sid,
+            uuid: &fresh.device_uuid,
+            version: &fresh.version,
+            user_id: None,
+            dfpid: fresh.dfpid.as_deref(),
+            model: fresh.device.as_ref().map(|d| d.model()),
+            base_url: "https://www.litatom.com",
+        };
+        let request = crate::lit::build_get(
+            "user/get_info/me",
+            &profile,
+            &[],
+            crate::lit::SignOptions::fresh().unwrap(),
         )
-        .await
         .unwrap();
-        device.validate(true).unwrap();
-        assert_eq!(device.fields.len(), 198);
+        assert_eq!(
+            request
+                .headers
+                .iter()
+                .find(|(k, _)| *k == "X-DFPID")
+                .unwrap()
+                .1,
+            fresh.dfpid.clone().unwrap()
+        );
+        assert_eq!(
+            AccountRegistry::open(db).unwrap().list()[0].device,
+            fresh.device
+        );
     }
 
     #[test]
@@ -367,7 +782,7 @@ mod tests {
             "drmId_native",
         ];
         for _ in 0..100 {
-            let fields = randomize(original.clone()).unwrap();
+            let fields = randomize(original.clone(), None).unwrap();
             assert_eq!(fields.len(), 198);
             for (key, value) in &original {
                 if !changed.contains(&key.as_str()) {
@@ -447,6 +862,6 @@ mod tests {
         );
         let mut nested = sample();
         nested.insert("bad".into(), serde_json::json!({"nested":1}));
-        assert!(randomize(nested).is_err());
+        assert!(randomize(nested, None).is_err());
     }
 }
