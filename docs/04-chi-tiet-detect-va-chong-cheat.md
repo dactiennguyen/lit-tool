@@ -1,5 +1,10 @@
 # 04 — Chi tiết `detect` blob & chống cheat (auto-clicker blacklist)
 
+> **Đính chính 15/11/2026:** `FUN_001adda8` trong phân tích dưới đây thực tế
+> là **siua**, không phải detect. Tên được xác minh lại từ bảng đăng ký JNI;
+> xem [tài liệu 34](34-siua-dfpid-vong-doi-static.md). Không dùng tên blob cũ
+> ở đây để xác định body `/eye`.
+
 ## 1. Cấu trúc blob `detect`
 Hàm `detect` = `FUN_001adda8`. Nó đọc struct toàn cục `DAT_002a7518` và ghép chuỗi:
 

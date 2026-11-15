@@ -1,5 +1,12 @@
 # 08 — `libliteye.so`: các hàm native trả gì về (ground-truth)
 
+> **Đính chính 15/11/2026:** tên gán cho native offsets trong các mục cũ
+> không chính xác: offset `0xadc00 = detect`, `0xadda8 = siua`,
+> `0xae50c = dfpToken`. Vì thế không dùng nhãn của log hook offset cũ để
+> kết luận phương thức Java nào trả token. Bảng đăng ký JNI đã được giải lại
+> từ bytes/assembly trong [tài liệu 34](34-siua-dfpid-vong-doi-static.md).
+> Các quan sát hook Java về sau cần được phân biệt với các nhãn offset cũ.
+
 > Điều tra **giá trị trả về** của 5 hàm native JNI trong `libliteye.so` (anti-fraud SDK, cầu Java `com.lit.liteye.LitEye`). Kết hợp **mổ tĩnh** (REA/Ghidra, image base `0x100000`) + **hook read-only lúc chạy** (frida 17.23.3, bắt return thật trên thiết bị, user 10). Lib này **strip + JNI đăng ký động** nên hook theo **offset** = `ghidra_addr − 0x100000`.
 
 ## 0. Khai báo JNI (kiểu trả về) — `com/lit/liteye/LitEye.java`

@@ -1,5 +1,11 @@
 # 03 — SDK chống gian lận liteye (`libliteye.so`)
 
+> **Đính chính 15/11/2026:** bảng JNI bên dưới từng gán nhầm tên ba hàm.
+> Với image base Ghidra cũ: `0x1adc00 = detect`, `0x1adda8 = siua`,
+> `0x1ae50c = dfpToken`. SIUA dựng timestamp/UUID mới mỗi lần gọi bình thường;
+> không suy ra mọi phép scan đều chạy lại. Dùng [xác minh tĩnh 34](34-siua-dfpid-vong-doi-static.md)
+> cho mapping và vòng đời header đã đối chiếu lại từ bytes/assembly.
+
 Toàn bộ bảo mật mạng thật của Litmatch nằm trong thư viện native **`libliteye.so`** (ARM64, stripped, 1.7MB, clang 19 NDK), không ở tầng Java.
 
 ## 1. Kiến trúc phân tầng (Java → Native)
