@@ -711,6 +711,8 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let task = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
+            // Without it, Nagle plus delayed ACKs hold a second small write ~40 ms on Linux.
+            socket.set_nodelay(true).unwrap();
             let mut got = Vec::new();
             loop {
                 let mut len = [0u8; 4];
@@ -719,11 +721,15 @@ mod tests {
                 }
                 let mut payload = vec![0u8; u32::from_be_bytes(len) as usize];
                 socket.read_exact(&mut payload).await.unwrap();
-                for out in reply(&payload) {
-                    if out.is_empty() {
-                        return got;
-                    }
-                    socket.write_all(&hx::frame(&out)).await.unwrap();
+                let replies = reply(&payload);
+                let close = replies.iter().any(Vec::is_empty);
+                // All frames of one reply in one write.
+                let bytes: Vec<u8> = replies.iter().take_while(|f| !f.is_empty()).flat_map(|f| hx::frame(f)).collect();
+                if !bytes.is_empty() && socket.write_all(&bytes).await.is_err() {
+                    return got;
+                }
+                if close {
+                    return got;
                 }
                 got.push(payload);
             }
@@ -875,8 +881,10 @@ mod tests {
         let ack = send_once(link(port, true), message.clone()).await.unwrap();
         assert_eq!((ack.accepted, ack.server_id.as_str()), (true, "1234567890123456789"));
         let frames = server.await.unwrap();
-        assert_eq!(frames.iter().map(|p| command(p)).collect::<Vec<_>>(), [3, 1, 0]);
-        assert_eq!(frames[2], message.frame[4..]);
+        assert_eq!(frames.iter().take(2).map(|p| command(p)).collect::<Vec<_>>(), [3, 1]);
+        // Heartbeat UNREADs may come and go; the only command 0 is the message: no SYNC pull.
+        let syncs: Vec<_> = frames.iter().filter(|p| command(p) == 0).collect();
+        assert_eq!(syncs, [&message.frame[4..]]);
     }
 
     #[tokio::test]
