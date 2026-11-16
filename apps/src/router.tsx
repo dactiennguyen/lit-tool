@@ -1,6 +1,7 @@
 import { createHashHistory, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { AccountsPage } from "@/features/accounts/accounts-page";
+import { OutreachPage } from "@/features/outreach/outreach-page";
 import { OverviewPage } from "@/features/overview/overview-page";
 import { SettingsPage } from "@/features/settings/settings-page";
 import {
@@ -24,6 +25,7 @@ const indexRoute = createRoute({
 
 const overviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/overview", component: OverviewPage });
 const accountsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/accounts", component: AccountsPage });
+const outreachRoute = createRoute({ getParentRoute: () => rootRoute, path: "/outreach", component: OutreachPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
 /** One account's workspace; its tabs are the child routes. */
@@ -58,6 +60,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   overviewRoute,
   accountsRoute,
+  outreachRoute,
   settingsRoute,
   workspaceRoute.addChildren([workspaceIndexRoute, chatRoute, discoverRoute, feedRoute, profileRoute]),
 ]);
