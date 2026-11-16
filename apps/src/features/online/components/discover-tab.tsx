@@ -164,9 +164,9 @@ function UserCard({ user, onOpen }: { user: OnlineUser; onOpen: (u: UserRef) => 
       </div>
     </>
   );
-  const base = "flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left";
+  const base = "flex h-full w-full items-start gap-3 rounded-xl border bg-card p-3 text-left";
   return (
-    <li>
+    <li className="h-full">
       {id ? (
         <button
           type="button"

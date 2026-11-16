@@ -28,6 +28,9 @@ export function setTcpStatus(accountId: string, status: Stored | null): void {
 
 export const getTcpStatus = (accountId: string): TcpStatus => statuses.get().get(accountId) ?? { state: "idle" };
 
+/** Every account's status (idle ones are absent); re-renders when any changes. */
+export const useTcpStatuses = (): ReadonlyMap<string, TcpStatus> => statuses.use();
+
 export function useTcpStatus(accountId: string): TcpStatus {
   return statuses.use().get(accountId) ?? { state: "idle" };
 }

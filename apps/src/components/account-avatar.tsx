@@ -1,12 +1,17 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-/** Up to two initials; iterates code points so emoji aren't split in half. */
+/**
+ * Up to two initials: the first character of the first and last words,
+ * skipping punctuation, so "Acc chính (me)" gives "AM", not "A(". Code points
+ * are kept whole, so an emoji is not split in half.
+ */
 export function initials(label: string): string {
-  const parts = label.trim().split(/\s+/).filter(Boolean);
-  const firstChar = (s: string | undefined) => (s ? (Array.from(s)[0] ?? "") : "");
-  const first = firstChar(parts[0]) || "?";
-  const last = parts.length > 1 ? firstChar(parts[parts.length - 1]) : "";
+  const lead = (word: string) => Array.from(word).find((c) => !/\p{P}/u.test(c)) ?? "";
+  const words = label.trim().split(/\s+/).map(lead).filter(Boolean);
+  if (words.length === 0) return "?";
+  const first = words[0]!;
+  const last = words.length > 1 ? words[words.length - 1]! : "";
   return (first + last).toUpperCase();
 }
 

@@ -1,7 +1,17 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, Loader2Icon, LogInIcon, UsersIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CircleCheckIcon,
+  GemIcon,
+  Loader2Icon,
+  LogInIcon,
+  MessagesSquareIcon,
+  RadioIcon,
+  UsersIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AccountAvatar } from "@/components/account-avatar";
 import { EmptyState } from "@/components/empty-state";
@@ -13,7 +23,7 @@ import { SessionText } from "@/components/session-status";
 import { TcpText } from "@/components/tcp-status";
 import { litQueries, useAccounts } from "@/lib/queries";
 import { login, useSessions } from "@/stores/sessions";
-import { useTcpStatus } from "@/stores/tcp-status";
+import { isLive, useTcpStatus, useTcpStatuses } from "@/stores/tcp-status";
 import { summarize, type AccountSummary } from "@/features/overview/lib/overview-view";
 
 const numberFmt = new Intl.NumberFormat("vi-VN");
@@ -67,6 +77,15 @@ export function OverviewPage() {
     summary: summarize(me[i]!, wallets[i]!, convs[i]!),
   }));
   const loggedIn = list.filter((a) => sessionOf(a).state === "in").length;
+  const tcp = useTcpStatuses();
+  const live = list.filter((a) => {
+    const s = tcp.get(a.id);
+    return s !== undefined && isLive(s);
+  }).length;
+  const total = (pick: (s: AccountSummary) => number | null) => {
+    const values = rows.map((r) => pick(r.summary)).filter((v): v is number => v !== null);
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  };
 
   return (
     <>
@@ -94,10 +113,31 @@ export function OverviewPage() {
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <p className="px-5 pt-3 text-xs text-muted-foreground">
-            Đăng nhập kiểm tra session, rồi tải ví và hội thoại; lần lượt từng account.
-          </p>
-          <OverviewTable rows={rows} />
+          <dl className="grid grid-cols-2 gap-3 px-5 pt-4 md:grid-cols-4">
+            <Stat icon={UsersIcon} label="Account" value={numberFmt.format(list.length)} />
+            <Stat
+              icon={CircleCheckIcon}
+              label="Đã đăng nhập"
+              value={`${loggedIn}/${list.length}`}
+              tone={loggedIn > 0 ? "success" : undefined}
+            />
+            <Stat icon={RadioIcon} label="Đang nhận tin" value={`${live}/${list.length}`} tone={live > 0 ? "success" : undefined} />
+            <Stat
+              icon={GemIcon}
+              label="Tổng kim cương"
+              value={fmtTotal(total((s) => s.diamonds))}
+              hint={`${fmtTotal(total((s) => s.conversations))} hội thoại`}
+              hintIcon={MessagesSquareIcon}
+            />
+          </dl>
+          {loggedIn < list.length && (
+            <p className="px-5 pt-3 text-xs text-muted-foreground">
+              “Đăng nhập tất cả” kiểm tra session rồi tải ví và hội thoại, lần lượt từng account.
+            </p>
+          )}
+          <div className="pt-3">
+            <OverviewTable rows={rows} />
+          </div>
         </div>
       )}
     </>
@@ -168,6 +208,42 @@ function OverviewTable({ rows }: { rows: { account: Account; summary: AccountSum
         })}
       </tbody>
     </table>
+  );
+}
+
+const fmtTotal = (n: number | null) => (n === null ? "—" : numberFmt.format(n));
+
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  hint,
+  hintIcon: HintIcon,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  tone?: "success";
+  hint?: string;
+  hintIcon?: LucideIcon;
+}) {
+  return (
+    <div className="rounded-xl border bg-card px-4 py-3">
+      <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="size-3.5" aria-hidden />
+        {label}
+      </dt>
+      <dd className={tone === "success" ? "mt-1 text-xl font-semibold tabular-nums text-success" : "mt-1 text-xl font-semibold tabular-nums"}>
+        {value}
+      </dd>
+      {hint && (
+        <dd className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+          {HintIcon && <HintIcon className="size-3" aria-hidden />}
+          {hint}
+        </dd>
+      )}
+    </div>
   );
 }
 

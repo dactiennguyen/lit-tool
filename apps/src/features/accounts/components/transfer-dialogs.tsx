@@ -209,7 +209,7 @@ export function ImportDialog({ open, onOpenChange }: DialogProps) {
                 autoFocus
                 value={text}
                 onChange={(e) => edit(e.target.value)}
-                placeholder='{"format": "sky-manager-accounts", "accounts": [...]}'
+                placeholder='[{"label": "...", "deviceUuid": "...", "version": "...", "sid": "..."}]'
                 spellCheck={false}
                 className="field-sizing-fixed h-56 resize-none font-mono text-xs md:text-xs"
               />

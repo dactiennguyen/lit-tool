@@ -23,7 +23,7 @@ export function SendLog({ entries, canClear, onClear }: { entries: BlastLogEntry
   return (
     <section aria-label="Nhật ký gửi" className="flex min-h-0 flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Nhật ký gửi</span>
+        <span className="whitespace-nowrap text-xs font-medium uppercase tracking-wide text-muted-foreground">Nhật ký gửi</span>
         <span className="flex-1" />
         <div className="inline-flex rounded-md border p-0.5">
           {tabs.map((t) => (

@@ -71,7 +71,7 @@ export function AccountsPage() {
   return (
     <>
       <PageHeader
-        title="Tài khoản"
+        title="Quản lý account"
         description={accounts ? `${accounts.length} account` : undefined}
         actions={
           <div className="flex items-center gap-2">

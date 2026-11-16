@@ -2,9 +2,9 @@
 //! its IM credentials and its proxy, to copy to another machine, paste, or
 //! keep in a file. Anyone holding the text can use the accounts.
 //!
-//! Text (JSON): `format`, `version` (2), `exportedAt` and `accounts`. Import
-//! also takes a bare array of accounts, and still reads the password-protected
-//! files of version 1 (PBKDF2-HMAC-SHA256 + AES-256-GCM, header bound as
+//! Text (JSON): an array of accounts, nothing else. Import also reads the
+//! `{ format, version: 2, exportedAt, accounts }` object of 1.3.0 to 1.5.0,
+//! and the password-protected files of version 1 (PBKDF2-HMAC-SHA256 + AES-256-GCM, header bound as
 //! associated data). It adds accounts whose device UUID is new and skips the
 //! rest. An imported proxy is not tested. The device setup (JSON, DFPID
 //! refresh) is not exported.
@@ -21,7 +21,7 @@ use sha2::Sha256;
 use crate::storage::accounts::{AccountRegistry, NewAccount};
 
 const FORMAT: &str = "sky-manager-accounts";
-/// Plain JSON text.
+/// The plain JSON object of 1.3.0 to 1.5.0 (read only; exports are a bare array now).
 const VERSION: u32 = 2;
 /// Password-protected files of earlier builds (read only).
 const ENCRYPTED_VERSION: u32 = 1;
@@ -187,14 +187,13 @@ fn open(file: &[u8], password: &str) -> Result<Bundle> {
     serde_json::from_slice(&plain).map_err(|_| invalid("Nội dung file export không hợp lệ"))
 }
 
-/// The accounts as plain, pretty JSON text.
-fn to_text(accounts: Vec<Exported>, exported_at: u64) -> String {
-    let bundle = Bundle { format: Some(FORMAT.into()), version: Some(VERSION), exported_at, accounts };
-    serde_json::to_string_pretty(&bundle).expect("the bundle serializes")
+/// The accounts as plain, pretty JSON text: an array of accounts.
+fn to_text(accounts: &[Exported]) -> String {
+    serde_json::to_string_pretty(accounts).expect("the accounts serialize")
 }
 
-/// The accounts of an export text: plain (version 2, or a bare array of
-/// accounts), or a password-protected file of version 1.
+/// The accounts of an export text: an array of accounts, the version 2 object
+/// of earlier builds, or a password-protected file of version 1.
 fn parse(text: &str, password: Option<&str>) -> Result<Vec<Exported>> {
     if text.len() as u64 > MAX_FILE {
         return Err(invalid("Nội dung quá lớn, không phải export account"));
@@ -325,7 +324,7 @@ fn export(app: &tauri::AppHandle) -> Result<(String, usize, Vec<String>)> {
         return Err(invalid("Không có account nào có sid để export"));
     }
     let exported = accounts.len();
-    Ok((to_text(accounts, crate::storage::store::now_ms()), exported, skipped))
+    Ok((to_text(&accounts), exported, skipped))
 }
 
 /// Every account as JSON text, to show and copy.
@@ -469,8 +468,9 @@ mod tests {
         source.save_im_credentials(one.id, "love1", "pw1").unwrap();
         let (accounts, skipped) = collect(&source);
         assert_eq!((accounts.len(), skipped.len()), (2, 0));
-        let text = to_text(accounts, 1);
-        assert!(text.contains("\"sid\": \"sid-1\"") && text.contains("\"version\": 2"), "plain JSON: {text}");
+        let text = to_text(&accounts);
+        assert!(text.starts_with('[') && text.contains("\"sid\": \"sid-1\""), "a bare array: {text}");
+        assert!(!text.contains("format") && !text.contains("exportedAt"), "accounts only: {text}");
 
         let (_b, target) = registry();
         target.add(new("Đã có", "dev-2", "sid-x")).unwrap();

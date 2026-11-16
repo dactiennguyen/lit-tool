@@ -21,6 +21,7 @@ import type { Account } from "@/lib/api";
 import type { Peer } from "@/stores/peer-directory";
 import { useHistory, useSendText } from "@/lib/queries";
 import { markRead } from "@/stores/read-markers";
+import { isLive, useTcpStatus } from "@/stores/tcp-status";
 import { cn } from "@/lib/utils";
 import { UserInfoDialog, type UserRef } from "@/features/users/components/user-info-dialog";
 import type { OpenConversation } from "./chat-tab";
@@ -234,6 +235,7 @@ function Composer({
   const [text, setText] = useState("");
   const [confirming, setConfirming] = useState(false);
   const send = useSendText(account.id);
+  const live = isLive(useTcpStatus(account.id));
   const bytes = utf8Bytes(text);
   const ready = canSend(text) && !send.isPending;
 
@@ -284,7 +286,11 @@ function Composer({
         </Button>
       </div>
       <p className="flex justify-between gap-3 text-[11px] text-muted-foreground">
-        <span>Mỗi lần gửi đăng nhập TCP mới rồi ngắt; app trên điện thoại có thể bị đăng xuất.</span>
+        <span>
+          {live
+            ? "Gửi qua kết nối chat đang mở."
+            : "Chưa kết nối chat: mỗi lần gửi đăng nhập TCP mới rồi ngắt; app trên điện thoại có thể bị đăng xuất."}
+        </span>
         {bytes > MAX_TEXT_BYTES * 0.8 && (
           <span className={cn("shrink-0 tabular-nums", bytes > MAX_TEXT_BYTES && "text-destructive")}>
             {bytes}/{MAX_TEXT_BYTES} byte
