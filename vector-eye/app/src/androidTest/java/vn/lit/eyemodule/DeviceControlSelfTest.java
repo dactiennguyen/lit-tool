@@ -8,8 +8,8 @@ import java.util.Map;
 
 /** Runs with app_process against temporary files; never touches installed app data. */
 public final class DeviceControlSelfTest {
-    private static final String VECTOR = "/data/misc/test-fixture/prefs10/" + DeviceController.HMD + "/ids.xml";
-    private static final String APP = "/data/user/10/" + DeviceController.HMD + "/shared_prefs/ids.xml";
+    private static final String VECTOR = "/data/misc/test-fixture/prefs/" + DeviceController.HMD + "/ids.xml";
+    private static final String APP = "/data/user/0/" + DeviceController.HMD + "/shared_prefs/ids.xml";
     private static int passed;
 
     public static void main(String[] args) throws Exception {
@@ -25,10 +25,9 @@ public final class DeviceControlSelfTest {
         transaction("clear-success", true, "", false, false);
         transaction("stale", true, "", true, false);
         transaction("busy", true, "", false, true);
-        transaction("second-write-failure", true, failSecondWrite(), false, false);
         transaction("clear-failure", true, "pm() { echo Failure; return 1; }\n", false, false);
-        transaction("rollback-failure", true, failSecondWrite()
-            .replace("command mv", "case \"$2:$3\" in *.backup:*/vector.xml) return 1;; esac; command mv"), false, false);
+        transaction("rollback-failure", true, "pm() { echo Failure; return 1; }\n" +
+            "mv() { case \"$2:$3\" in *.backup:*/vector.xml) return 1;; esac; command mv \"$@\"; }\n", false, false);
         System.out.println("PASS: " + passed + " device controller cases; only scratch files and fake am/pm used");
     }
 
@@ -80,14 +79,14 @@ public final class DeviceControlSelfTest {
     }
 
     private static void scope() throws Exception {
-        String scope = "[{\"APP_PACKAGE\":\"com.litatom.app\",\"USER_ID\":10}]";
-        DeviceController valid = controller("enabled", 1010320, scope);
+        String scope = "[{\"APP_PACKAGE\":\"com.litatom.app\",\"USER_ID\":0}]";
+        DeviceController valid = controller("enabled", 10320, scope);
         valid.checkScope();
-        rejects(() -> controller("disabled", 1010320, scope).checkScope(), "Disabled module");
-        rejects(() -> controller("enabled", 10320, scope).checkScope(), "Wrong module user");
-        rejects(() -> controller("enabled", 1010320, scope.replace(":10", ":0")).checkScope(), "Wrong target user");
-        rejects(() -> controller("enabled", 1010320, scope.replace("com.litatom.app", "other.app")).checkScope(), "Wrong target package");
-        rejects(() -> controller("enabled", 1010320, "[" + scope.substring(1, scope.length() - 1) + ",{}]").checkScope(), "Extra scope");
+        rejects(() -> controller("disabled", 10320, scope).checkScope(), "Disabled module");
+        rejects(() -> controller("enabled", 1010320, scope).checkScope(), "Wrong module user");
+        rejects(() -> controller("enabled", 10320, scope.replace(":0", ":10")).checkScope(), "Wrong target user");
+        rejects(() -> controller("enabled", 10320, scope.replace("com.litatom.app", "other.app")).checkScope(), "Wrong target package");
+        rejects(() -> controller("enabled", 10320, "[" + scope.substring(1, scope.length() - 1) + ",{}]").checkScope(), "Extra scope");
         LinkedHashMap<String, Object> settings = new LinkedHashMap<>();
         settings.put("enabled", false);
         DeviceController.Snapshot snapshot = new DeviceController.Snapshot(new LinkedHashMap<>(), settings);
@@ -95,10 +94,6 @@ public final class DeviceControlSelfTest {
         settings.put("enabled", true); settings.put("random_each_launch", true);
         rejects(() -> valid.rotate(snapshot, false), "Preserve UUID with per-launch rotation");
         passed++;
-    }
-
-    private static String failSecondWrite() {
-        return "mv() { case \"$2:$3\" in *.next:*/app.xml) return 1;; esac; command mv \"$@\"; }\n";
     }
 
     private static void transaction(String name, boolean clear, String overrides, boolean stale, boolean busy) throws Exception {
@@ -109,10 +104,10 @@ public final class DeviceControlSelfTest {
             String oldApp = "<map><string name='android_id'>eab89b6de0f57db2</string></map>";
             String next = "<map><string name='android_id'>0123456789abcdef</string></map>";
             write(vector, stale ? "changed" : oldVector); write(app, oldApp);
-            LinkedHashMap<String, String> files = new LinkedHashMap<>(); files.put(VECTOR, oldVector); files.put(APP, oldApp);
+            LinkedHashMap<String, String> files = new LinkedHashMap<>(); files.put(VECTOR, oldVector);
             String script = DeviceController.mutationScript(new DeviceController.Snapshot(files, DeviceController.parse(oldVector)), next, clear)
                 .replace(VECTOR, vector.getPath()).replace(APP, app.getPath())
-                .replace("/data/local/tmp/eye-device-control-10.lock", new File(dir, "lock").getPath());
+                .replace("/data/local/tmp/eye-device-control-0.lock", new File(dir, "lock").getPath());
             if (busy) check(new File(dir, "lock").mkdir(), "Create test lock");
             String prefix = "am() { printf '%s\\n' \"$*\" >> " + RootShell.quote(calls.getPath()) + "; }\n"
                 + "pm() { printf '%s\\n' \"$*\" >> " + RootShell.quote(calls.getPath()) + "; echo Success; }\n"
@@ -123,14 +118,14 @@ public final class DeviceControlSelfTest {
             boolean success = name.equals("success") || name.equals("clear-success");
             check((exit == 0) == success, name + " exit status: " + output);
             if (success) {
-                check(read(vector).equals(next) && read(app).equals(next), "Both configurations updated");
+                check(read(vector).equals(next) && read(app).equals(oldApp), "Vector config updated; app prefs left untouched");
                 check(output.contains("EYE_APPLIED"), "Commit acknowledgement");
-                check(read(calls).contains("clear --user 10 com.litatom.app") == clear, "Clear only on explicit reset");
+                check(read(calls).contains("clear --user 0 com.litatom.app") == clear, "Clear only on explicit reset");
             } else if (name.equals("rollback-failure")) {
                 check(output.contains("EYE_ROLLBACK_FAILED"), "Report failed recovery");
                 check(new File(dir, "lock").exists(), "Retain recovery lock");
                 check(dir.listFiles((d, n) -> n.endsWith(".backup")).length == 1, "Preserve unrecovered backup");
-                check(read(app).equals(oldApp), "Still recover other file");
+                check(read(app).equals(oldApp), "App prefs left untouched");
             } else {
                 check(read(vector).equals(stale ? "changed" : oldVector) && read(app).equals(oldApp), "Original contents preserved: " + name);
                 if (!stale && !busy) check(output.contains("EYE_ROLLED_BACK"), "Rollback acknowledged");
@@ -139,7 +134,7 @@ public final class DeviceControlSelfTest {
                 check(!new File(dir, "lock").exists(), "Release lock: " + name);
                 check(dir.listFiles((d, n) -> n.contains(".eye-")).length == 0, "Remove temporary copies: " + name);
             }
-            if (stale || busy || name.equals("second-write-failure"))
+            if (stale || busy)
                 check(!calls.exists() || !read(calls).contains("clear --user"), "No destructive clear on precommit failure");
             passed++;
         } finally { delete(dir); }

@@ -38,6 +38,7 @@ public final class MainActivity extends Activity {
     private Button readDevice, rotateDevice, resetDevice, verifyDevice, open, rootManager;
     private boolean deviceBusy, deviceWaiting;
     private int deviceRequestId;
+    private int rootCheckId;
     private final boolean controllerUser = isControllerUser();
 
     @Override public void onCreate(Bundle state) {
@@ -51,10 +52,8 @@ public final class MainActivity extends Activity {
         scroll.addView(layout);
         TextView title = text(layout, "Eye · Tài khoản và thiết bị", 28);
         title.setTextColor(Color.rgb(23, 43, 77));
-        text(layout, "Lấy JSON của tài khoản Litmatch đang đăng nhập trên user 10.", 16);
-        status = text(layout, controllerUser && Process.myUid() / 100000 == 0
-            ? "Eye user 0 có thể điều khiển Hide My Device cho Litmatch/user 10."
-            : "Mở Litmatch một lần, sau đó quay lại Eye và bấm Lấy tài khoản.", 16);
+        text(layout, "Lấy JSON của tài khoản Litmatch đang đăng nhập trên user 0.", 16);
+        status = text(layout, "Mở Litmatch một lần, sau đó quay lại Eye và bấm Lấy tài khoản.", 16);
         open = button(layout, "Mở Litmatch");
         open.setOnClickListener(v -> {
             Intent launch = getPackageManager().getLaunchIntentForPackage("com.litatom.app");
@@ -87,8 +86,8 @@ public final class MainActivity extends Activity {
         preview.setTypeface(android.graphics.Typeface.MONOSPACE);
         preview.setTextIsSelectable(true);
         preview.setVisibility(View.GONE);
-        text(layout, "Thiết bị · Litmatch / user 10", 22);
-        text(layout, "Điều khiển Hide My Device ngay trong Eye. Cần cấp quyền root cho Eye; module Hide My Device vẫn phải bật trong Vector.", 15);
+        text(layout, "Thiết bị · Litmatch / user 0", 22);
+        text(layout, "Điều khiển Hide My Device ngay trong Eye; module Hide My Device vẫn phải bật trong Vector.", 15);
         text(layout, "Hỗ trợ 18 trường của Hide My Device. device/product/board/hardware chưa được module này thay đổi.", 14);
         rootManager = button(layout, "Mở trình quản lý root để cấp quyền cho Eye");
         rootManager.setOnClickListener(v -> openRootManager());
@@ -107,17 +106,29 @@ public final class MainActivity extends Activity {
         updateDeviceButtons();
         setContentView(scroll);
         if (!controllerUser) {
-            status.setText("Mở Eye ở user 0 hoặc user 10 để điều khiển Litmatch/user 10.");
+            status.setText("Mở Eye ở user 0 để điều khiển Litmatch/user 0.");
             fetch.setEnabled(false);
             open.setEnabled(false);
             rootManager.setEnabled(false);
             readDevice.setEnabled(false); rotateDevice.setEnabled(false); resetDevice.setEnabled(false); verifyDevice.setEnabled(false);
-        } else if (Process.myUid() / 100000 == 0) {
-            // Account export is scoped to the Litmatch process in user 10. User 0 is a device controller only.
-            fetch.setEnabled(false);
-            open.setEnabled(false);
-            verifyDevice.setEnabled(false);
+
         }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (!controllerUser) return;
+        final int id = ++rootCheckId;
+        worker.execute(() -> {
+            boolean granted;
+            try { granted = "0".equals(RootShell.run("id -u").trim()); }
+            catch (Exception ignored) { granted = false; }
+            final boolean hasRoot = granted;
+            handler.post(() -> {
+                if (isDestroyed() || id != rootCheckId) return;
+                rootManager.setVisibility(hasRoot ? View.GONE : View.VISIBLE);
+            });
+        });
     }
 
     private void updateDeviceButtons() {
@@ -126,14 +137,14 @@ public final class MainActivity extends Activity {
         rotateDevice.setEnabled(available && deviceSnapshot != null);
         resetDevice.setEnabled(available && deviceSnapshot != null);
         verifyDevice.setEnabled(available);
-        open.setEnabled(available && Process.myUid() / 100000 == 10);
+        open.setEnabled(available && Process.myUid() / 100000 == 0);
         rootManager.setEnabled(controllerUser);
-        fetch.setEnabled(available && Process.myUid() / 100000 == 10 && !waiting);
+        fetch.setEnabled(available && Process.myUid() / 100000 == 0 && !waiting);
     }
 
     private static boolean isControllerUser() {
         int user = Process.myUid() / 100000;
-        return user == 0 || user == 10;
+        return user == 0;
     }
 
     private void openRootManager() {
@@ -146,7 +157,7 @@ public final class MainActivity extends Activity {
             }
             if (launch != null) {
                 startActivity(launch);
-                deviceStatus.setText("Trong trình quản lý root, cấp ROOT cho Eye ở user 10 rồi quay lại đọc cấu hình.");
+                deviceStatus.setText("Trong trình quản lý root, cấp ROOT cho Eye ở user 0 rồi quay lại đọc cấu hình.");
                 return;
             }
         }
@@ -158,7 +169,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle(clear ? "Xóa dữ liệu và tạo thiết bị mới?" : "Đổi thông tin thiết bị?")
             .setMessage(clear
-                ? "Xóa toàn bộ dữ liệu Litmatch ở user 10: phiên đăng nhập, tin nhắn lưu trên máy và cài đặt. Sau đó dùng bộ thông tin mới, gồm Android ID/UUID mới. Bạn phải đăng nhập lại. Tài khoản Google trên Android không bị xóa. Không thể hoàn tác dữ liệu Litmatch đã xóa."
+                ? "Xóa toàn bộ dữ liệu Litmatch ở user 0: phiên đăng nhập, tin nhắn lưu trên máy và cài đặt. Sau đó dùng bộ thông tin mới, gồm Android ID/UUID mới. Bạn phải đăng nhập lại. Tài khoản Google trên Android không bị xóa. Không thể hoàn tác dữ liệu Litmatch đã xóa."
                 : "Litmatch sẽ đóng. Đổi các trường Hide My Device nhưng giữ Android ID/UUID hiện tại và giữ dữ liệu Litmatch. Các thông tin khác thay đổi vẫn có thể khiến server yêu cầu đăng nhập lại.")
             .setNegativeButton("Hủy", null)
             .setPositiveButton(clear ? "Xóa và đổi thiết bị" : "Đổi thông tin", (dialog, which) -> runDeviceAction(true, clear))
@@ -211,8 +222,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestDeviceReport() {
-        if (deviceBusy || deviceWaiting || Process.myUid() / 100000 != 10) {
-            if (Process.myUid() / 100000 == 0) deviceStatus.setText("Kiểm tra trong tiến trình Litmatch cần mở Eye ở user 10.");
+        if (deviceBusy || deviceWaiting || Process.myUid() / 100000 != 0) {
             return;
         }
         int id = ++deviceRequestId;
@@ -229,10 +239,15 @@ public final class MainActivity extends Activity {
                     JSONObject actual = new JSONObject(data.getString("json"));
                     String match = "Chưa đọc cấu hình để đối chiếu.";
                     if (deviceSnapshot != null) {
-                        boolean same = true;
-                        for (String key : new String[]{"android_id", "brand", "manufacturer", "model"})
-                            same &= actual.optString(key).equals(String.valueOf(deviceSnapshot.settings.get(key)));
-                        match = same ? "UUID, brand, manufacturer và model khớp cấu hình." : "Thông tin chưa khớp cấu hình. Hãy đóng/mở lại Litmatch và kiểm tra Vector.";
+                        boolean same = true, complete = true;
+                        for (String key : new String[]{"android_id", "brand", "manufacturer", "model"}) {
+                            Object expected = deviceSnapshot.settings.get(key);
+                            if (!(expected instanceof String) || ((String) expected).isEmpty()) complete = false;
+                            else if (!actual.optString(key).equals(expected)) same = false;
+                        }
+                        match = !complete ? "Cấu hình chưa đủ Android ID, brand, manufacturer và model để đối chiếu."
+                            : same ? "Android ID, brand, manufacturer và model khớp cấu hình."
+                            : "Thông tin chưa khớp cấu hình. Hãy đóng/mở lại Litmatch và kiểm tra Vector.";
                     }
                     deviceStatus.setText("Đã đọc từ Litmatch. " + match);
                     devicePreview.setText(actual.toString(2));
@@ -248,7 +263,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestAccount() {
-        if (deviceBusy || deviceWaiting || waiting || Process.myUid() / 100000 != 10) return;
+        if (deviceBusy || deviceWaiting || waiting || Process.myUid() / 100000 != 0) return;
         int id = ++requestId;
         waiting = true;
         accountJson = null;
@@ -284,7 +299,7 @@ public final class MainActivity extends Activity {
             if (id != requestId || !waiting || isDestroyed()) return;
             waiting = false;
             updateDeviceButtons();
-            status.setText("Chưa nhận được phản hồi. Bật Eye cho Litmatch user 10 trong Vector, đóng/mở lại Litmatch rồi thử lại.");
+            status.setText("Chưa nhận được phản hồi. Bật Eye cho Litmatch user 0 trong Vector, đóng/mở lại Litmatch rồi thử lại.");
         }, 8000);
     }
 
@@ -306,6 +321,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         requestId++;
         deviceRequestId++;
+        rootCheckId++;
         worker.shutdown();
         waiting = false;
         handler.removeCallbacksAndMessages(null);

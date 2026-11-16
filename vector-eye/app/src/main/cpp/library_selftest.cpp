@@ -11,8 +11,8 @@ int main(int argc, char **argv) {
     if (!base) { std::puts("library base not found"); return 3; }
     for (const auto &s : sites) {
         const auto *code = reinterpret_cast<const uint32_t *>(base + s.offset);
-        if (code[0] == s.insns[0] || memcmp(code + 1, s.insns + 1, 12)) {
-            std::printf("%s: hook not installed safely\n", s.name); return 4;
+        if (memcmp(code, s.insns, sizeof(s.insns))) {
+            std::printf("%s: disabled inline site was modified\n", s.name); return 4;
         }
         uint8_t object[32] = {};
         uint8_t str[24] = {};
@@ -28,14 +28,8 @@ int main(int argc, char **argv) {
         if (memcmp(str + 1, s.to, strlen(s.to))) {
             std::printf("%s: callback mismatch\n", s.name); return 5;
         }
-        std::printf("%s: hook installed; callback changed expected value\n", s.name);
+        std::printf("%s: inline site unchanged; callback changed expected value\n", s.name);
     }
-    for (const auto &s : sites) {
-        if (DobbyDestroy(reinterpret_cast<void *>(base + s.offset)) != 0 ||
-            memcmp(reinterpret_cast<void *>(base + s.offset), s.insns, sizeof(s.insns))) {
-            std::printf("%s: restoration failed\n", s.name); return 6;
-        }
-    }
-    puts("PASS: original instructions restored");
+    puts("PASS: inline sites remain unmodified; callbacks tested on synthetic data");
     return 0;
 }

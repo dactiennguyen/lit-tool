@@ -1,48 +1,44 @@
 # Module Vector thử nghiệm Eye
 
-## Eye 0.3: điều khiển Hide My Device
+## Eye: Litmatch user 0
 
-Eye điều khiển cấu hình Hide My Device cho **Litmatch / Android user 10**.
-Hide My Device vẫn là module áp dụng hook; cần bật trong Vector và chỉ chọn
-`com.litatom.app/10` trong phạm vi của module. Cấp quyền root cho Eye ở user 10
-trong trình quản lý root của máy (APatch/KernelSU/Magisk), rồi mở lại Eye.
-Với APatch, `su` có thể không xuất hiện trong ứng dụng chưa được cấp quyền.
+Eye dùng Litmatch và Hide My Device ở Android user 0. Bật hai module trong Vector,
+chọn duy nhất `com.litatom.app/0`, cấp quyền root cho Eye rồi mở lại Litmatch.
+Bấm **Đọc cấu hình thiết bị** trước khi đổi; nút xóa chỉ xóa dữ liệu Litmatch
+user 0 sau khi xác nhận. User 10 có dữ liệu riêng. Khi cấu hình HMD chưa có
+Android ID, không thể xoay mà giữ UUID cho tới khi đã tạo ID hợp lệ.
 
-Nếu FolkPatch/APatch chỉ hoạt động ở user 0, Eye cũng có thể được cài và cấp
-quyền ở user 0 làm bộ điều khiển. Eye user 0 vẫn nhắm cố định tới cấu hình
-Hide My Device và Litmatch của user 10; phần lấy JSON tài khoản vẫn chỉ chạy
-ở user 10. Việc cài ứng dụng FolkPatch không đồng nghĩa KernelPatch đã hoạt động:
-màn hình phải báo đang hoạt động và APatch không được báo `SuperUser Count less
-than 1` hoặc `nativeKernelPatchModuleNum error`.
+Vector lưu cấu hình HMD user 0 tại `prefs/.../ids.xml`. Eye kiểm tra checksum,
+tạo bản sao và khôi phục nếu ghi thất bại; nếu khôi phục thất bại, giữ bản sao
+và khóa `/data/local/tmp/eye-device-control-0.lock` để kiểm tra thủ công.
+Việc xóa dữ liệu Litmatch thành công không thể hoàn tác bằng bản sao cấu hình.
 
-1. Bấm **Đọc cấu hình thiết bị** để đọc cấu hình đang lưu trong Vector.
-2. **Đổi thông tin · giữ UUID** tạo lại 17 trường và giữ Android ID hiện tại.
-   Litmatch được đóng trước khi ghi; dữ liệu đăng nhập không bị xóa.
-3. **Xóa dữ liệu Litmatch và đổi thiết bị** yêu cầu xác nhận, xóa toàn bộ dữ liệu
-   Litmatch user 10 và tạo cả Android ID mới. Phải đăng nhập lại sau đó.
-   Thao tác này không xóa tài khoản Google khỏi Android.
-4. Mở lại Litmatch, quay lại Eye và bấm **Kiểm tra thiết bị trong Litmatch**.
-   Eye đọc giá trị thực tế từ tiến trình Litmatch và so sánh Android ID, brand,
-   manufacturer, model với cấu hình. Có thêm DRM và các trường Build để xem.
+Bốn hook native inline đã tạm tắt sau khi Litmatch gặp `SIGSEGV/SEGV_ACCERR`
+trong EyeConnector. Các hook property/DRM và bridge tài khoản vẫn cần kiểm tra
+trên phiên bản app/thiết bị cụ thể; không suy ra server nhận dữ liệu giả.
+`eye_library_selftest` xác nhận các điểm inline giữ nguyên mã gốc và thử callback
+trên dữ liệu giả; kết quả đó không kiểm tra trampoline hay sửa nguyên nhân crash.
 
-Hỗ trợ 18 trường của Hide My Device: IMEI, serial, Android ID, advertising ID,
-DRM, brand, manufacturer, model, Wi-Fi MAC, BSSID, SSID, Bluetooth MAC,
-SIM serial, subscriber ID, số điện thoại, mã/tên/quốc gia nhà mạng.
-`device/product/board/hardware` vẫn là giá trị gốc vì Hide My Device chưa hook
-các trường này. Đổi cấu hình không chứng minh server sẽ chấp nhận thiết bị.
+Điều tra Dobby commit `9d271803881f467aabfc24593c7dcaeb710fe861`: trong
+`NearMemoryArena.cc`, nhánh tìm vùng nhớ trống cấp `alloc_size` byte cho mẫu,
+nhưng trên ARM64 lại tăng độ dài tìm thêm 3 byte trước khi gọi `memmem`. CMake
+vá dependency lúc cấu hình để cấp đủ bộ đệm và không thay đổi `alloc_size` qua
+các vòng lặp. CMake cũng thêm kiểm tra `mprotect` đầu tiên trong `CodePatch`;
+thử với địa chỉ không còn ánh xạ, tiến trình con trả lỗi thay vì `SIGSEGV`.
+Cả `DobbyInstrument` và `DobbyHook` đã được vá để báo lỗi nếu bước chuyển trang
+mã sang ghi được thất bại; `eye_patch_failure_selftest` ép trường hợp này và
+kiểm tra thử lại thành công. Các caller vẫn chưa truyền toàn bộ lỗi tạo
+trampoline hoặc khôi phục quyền bộ nhớ. Các lỗi
+này là điểm thiếu kiểm tra trong dependency, chưa chứng
+minh chúng gây ra trampoline không thực thi được trong tombstone. Bốn hook inline
+vẫn phải tắt cho đến khi có bản sửa và kiểm chứng riêng phù hợp.
 
-Eye ghi cả bản cấu hình Vector và bản SharedPreferences của Hide My Device,
-giữ quyền file/owner/SELinux, kiểm tra SHA-256 để từ chối ghi đè cấu hình vừa
-đổi. Nếu ghi hoặc xóa thất bại, khôi phục hai bản cấu hình. Nếu khôi phục cũng
-thất bại, giữ bản sao `.eye-*.backup` cạnh `ids.xml` và khóa
-`/data/local/tmp/eye-device-control-10.lock` để không ghi tiếp trước khi sửa.
-Việc xóa dữ liệu Litmatch đã thành công không thể hoàn tác bằng bản sao cấu hình.
+Trong bản Dobby đã vá, kết quả của lần ghi lệnh gốc được chuyển đến API cài
+hook. Mã trả về và việc kiểm tra độ dài lệnh nhảy vẫn không đủ chứng minh
+trampoline được tạo, ghi đúng hoặc còn nằm trong vùng có quyền thực thi. Cần
+xử lý lỗi xuyên suốt đường tạo trampoline trước khi cân nhắc bật lại hook.
 
-Kiểm tra giao dịch trên Android bằng `DeviceControlSelfTest` trong APK test:
-các file đều ở thư mục tạm riêng; lệnh `am`, `pm`, `chcon` được giả lập, không
-đóng/xóa app thật. Bao gồm UUID, XML, phạm vi module, cập nhật, xóa, cấu hình
-cũ, khóa đồng thời, lỗi ghi và lỗi khôi phục. Lượt này kiểm tra giao dịch file,
-không thay thế kiểm chứng quyền root/SELinux và giá trị hook trong app thật.
+Các phần sau mô tả kết quả lịch sử trên user 10, không phải cấu hình hiện tại.
 
 ## Eye 0.2: ứng dụng xem và copy JSON tài khoản
 

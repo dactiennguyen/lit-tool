@@ -167,7 +167,9 @@ static void install_drm_got() {
     LOG("native DRM import synchronized");
 }
 
-static void instrument(RegisterContext *ctx, const HookEntryInfo *info) {
+// Retained for eye_trampoline_map_selftest; inline instrumentation is disabled
+// in on_loaded, so this is unused in the shipped library.
+[[maybe_unused]] static void instrument(RegisterContext *ctx, const HookEntryInfo *info) {
     const uintptr_t off = reinterpret_cast<uintptr_t>(info->instruction_address) - base;
     const Site *site = nullptr;
     for (const auto &s : sites) if (s.offset == off) { site = &s; break; }
@@ -202,24 +204,9 @@ static void on_loaded(const char *name, void *handle) {
             LOG("unsupported code at %s", s.name); return;
         }
     }
-    // TBZ branches 12 bytes forward, so a 16-byte inline jump would overwrite
-    // its destination. Require Dobby's 4-byte near trampoline at every site.
-    dobby_enable_near_branch_trampoline();
-    size_t installed = 0;
-    for (const auto &s : sites) {
-        if (DobbyInstrument(reinterpret_cast<void *>(base + s.offset), instrument) != 0) {
-            LOG("instrument failed at %s; rolling back", s.name);
-            for (size_t i = 0; i < installed; ++i) DobbyDestroy(reinterpret_cast<void *>(base + sites[i].offset));
-            return;
-        }
-        ++installed;
-        if (memcmp(reinterpret_cast<void *>(base + s.offset + 4), s.insns + 1, 12)) {
-            LOG("%s used a long trampoline; rolling back", s.name);
-            for (size_t i = 0; i < installed; ++i) DobbyDestroy(reinterpret_cast<void *>(base + sites[i].offset));
-            return;
-        }
-    }
-    LOG("all four native sites instrumented");
+    // Inline instrumentation previously branched into non-executable memory.
+    // Keep the account bridge available until the trampoline failure is fixed.
+    LOG("native inline sites disabled after trampoline crash");
     void *property = dlsym(RTLD_DEFAULT, "__system_property_get");
     if (!property || DobbyHook(property, reinterpret_cast<void *>(property_get),
                                reinterpret_cast<void **>(&original_property_get)) != 0) {

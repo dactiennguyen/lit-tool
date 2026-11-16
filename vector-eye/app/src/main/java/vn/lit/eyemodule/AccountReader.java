@@ -21,7 +21,7 @@ final class AccountReader {
         String sid = (String) sessionClass.getMethod("b").invoke(null);
         String userId = (String) sessionClass.getMethod("c").invoke(null);
         if (sid == null || sid.isEmpty() || userId == null || userId.isEmpty()) {
-            throw new IllegalStateException("Chưa có tài khoản đăng nhập trong Litmatch user 10.");
+            throw new IllegalStateException("Chưa có tài khoản đăng nhập trong Litmatch user 0.");
         }
         if (!sid.equals(key.optString("session")) || !userId.equals(key.optString("userId"))) {
             throw new IllegalStateException("Tài khoản đang thay đổi. Chờ Litmatch lưu xong rồi lấy lại.");

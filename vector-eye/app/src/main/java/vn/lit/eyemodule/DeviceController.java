@@ -18,7 +18,7 @@ final class DeviceController {
     static final String HMD = "io.github.imkamaran.hidemydevice";
     static final String TARGET = "com.litatom.app";
     private static final String CLI = "/data/adb/lspd/cli";
-    private static final String APP_PREFS = "/data/user/10/" + HMD + "/shared_prefs/ids.xml";
+    private static final String APP_PREFS = "/data/user/0/" + HMD + "/shared_prefs/ids.xml";
     private final RootShell.Runner shell;
 
     static final class Snapshot {
@@ -31,7 +31,7 @@ final class DeviceController {
         String description() {
             StringBuilder out = new StringBuilder("Hide My Device: ")
                 .append(Boolean.TRUE.equals(settings.get("enabled")) ? "bật" : "tắt")
-                .append(" · Litmatch / user 10\n");
+                .append(" · Litmatch / user 0\n");
             for (String key : DeviceIdentity.FIELDS) out.append(key).append(": ").append(settings.getOrDefault(key, "—")).append('\n');
             return out.toString();
         }
@@ -41,13 +41,13 @@ final class DeviceController {
 
     Snapshot read() throws Exception {
         checkScope();
-        String paths = shell.run("set -eu\nfor p in /data/misc/*/prefs10/" + HMD + "/ids.xml; do\n"
+        String paths = shell.run("set -eu\nfor p in /data/misc/*/prefs/" + HMD + "/ids.xml; do\n"
             + "  if [ -f \"$p\" ] && [ ! -L \"$p\" ]; then printf '%s\\n' \"$p\"; fi\ndone");
         String[] found = paths.trim().split("\\r?\\n");
-        if (found.length != 1 || !found[0].matches("/data/misc/[A-Za-z0-9-]+/prefs10/" + HMD.replace(".", "\\.") + "/ids\\.xml"))
-            throw new IllegalStateException("Không xác định được cấu hình Vector user 10. Mở Hide My Device và lưu cấu hình một lần.");
+        if (found.length != 1 || !found[0].matches("/data/misc/[A-Za-z0-9-]+/prefs/" + HMD.replace(".", "\\.") + "/ids\\.xml"))
+            throw new IllegalStateException("Không xác định được cấu hình Vector user 0. Mở Hide My Device và lưu cấu hình một lần.");
         LinkedHashMap<String, String> files = new LinkedHashMap<>();
-        for (String path : new String[]{found[0], APP_PREFS}) {
+        for (String path : new String[]{found[0]}) {
             String encoded = shell.run("set -eu\np=" + RootShell.quote(path) + "\n[ -f \"$p\" ] && [ ! -L \"$p\" ]\nbase64 \"$p\"");
             byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
             if (bytes.length > 65536) throw new IllegalStateException("Cấu hình thiết bị quá lớn.");
@@ -64,14 +64,14 @@ final class DeviceController {
         JSONArray rows = modules.getJSONArray("data");
         for (int i = 0; i < rows.length(); i++) {
             JSONObject row = rows.getJSONObject(i);
-            if (HMD.equals(row.optString("PACKAGE")) && "enabled".equals(row.optString("STATUS")) && row.optInt("UID") / 100000 == 10) active = true;
+            if (HMD.equals(row.optString("PACKAGE")) && "enabled".equals(row.optString("STATUS")) && row.optInt("UID") / 100000 == 0) active = true;
         }
-        if (!modules.optBoolean("success") || !active) throw new IllegalStateException("Bật Hide My Device cho user 10 trong Vector trước.");
+        if (!modules.optBoolean("success") || !active) throw new IllegalStateException("Bật Hide My Device cho user 0 trong Vector trước.");
         JSONObject scope = new JSONObject(shell.run(CLI + " scope ls " + HMD + " --json"));
         JSONArray apps = scope.getJSONArray("data");
         if (!scope.optBoolean("success") || apps.length() != 1 || !TARGET.equals(apps.getJSONObject(0).optString("APP_PACKAGE"))
-                || apps.getJSONObject(0).optInt("USER_ID", -1) != 10)
-            throw new IllegalStateException("Để đổi riêng Litmatch, phạm vi Hide My Device phải chỉ gồm Litmatch/user 10. Hãy kiểm tra Vector.");
+                || apps.getJSONObject(0).optInt("USER_ID", -1) != 0)
+            throw new IllegalStateException("Để đổi riêng Litmatch, phạm vi Hide My Device phải chỉ gồm Litmatch/user 0. Hãy kiểm tra Vector.");
     }
 
     Snapshot rotate(Snapshot before, boolean clearLitmatch) throws Exception {
@@ -96,14 +96,14 @@ final class DeviceController {
     }
 
     static String mutationScript(Snapshot before, String xml, boolean clearLitmatch) throws Exception {
-        if (before.files.size() != 2 || !before.files.containsKey(APP_PREFS)) throw new IllegalArgumentException("Invalid configuration files");
+        if (before.files.size() != 1 || before.files.containsKey(APP_PREFS)) throw new IllegalArgumentException("Invalid configuration files");
         String suffix = ".eye-" + UUID.randomUUID();
         String encoded = Base64.encodeToString(xml.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-        StringBuilder script = new StringBuilder("set -eu\nlock=/data/local/tmp/eye-device-control-10.lock\n")
+        StringBuilder script = new StringBuilder("set -eu\nlock=/data/local/tmp/eye-device-control-0.lock\n")
             .append("mkdir \"$lock\" 2>/dev/null || { echo EYE_BUSY; exit 1; }\nsuccess=0\nchanged=0\n");
         int i = 0;
         for (String path : before.files.keySet()) {
-            if (!path.equals(APP_PREFS) && !path.matches("/data/misc/[A-Za-z0-9-]+/prefs10/" + HMD.replace(".", "\\.") + "/ids\\.xml"))
+            if (!path.equals(APP_PREFS) && !path.matches("/data/misc/[A-Za-z0-9-]+/prefs/" + HMD.replace(".", "\\.") + "/ids\\.xml"))
                 throw new IllegalArgumentException("Invalid configuration path");
             script.append("p").append(i).append('=').append(RootShell.quote(path)).append('\n');
             script.append("b").append(i).append('=').append(RootShell.quote(path + suffix + ".backup")).append('\n');
@@ -111,10 +111,10 @@ final class DeviceController {
             i++;
         }
         script.append("cleanup() {\n  rc=$?\n  trap - EXIT HUP INT TERM\n  set +e\n  rollback_failed=0\n  if [ \"$success\" != 1 ] && [ \"$changed\" = 1 ]; then\n");
-        for (i = 0; i < 2; i++) script.append("    if [ -f \"$b").append(i).append("\" ]; then mv -f \"$b").append(i).append("\" \"$p").append(i).append("\" || rollback_failed=1; else rollback_failed=1; fi\n");
+        for (i = 0; i < 1; i++) script.append("    if [ -f \"$b").append(i).append("\" ]; then mv -f \"$b").append(i).append("\" \"$p").append(i).append("\" || rollback_failed=1; else rollback_failed=1; fi\n");
         script.append("    if [ \"$rollback_failed\" = 1 ]; then echo EYE_ROLLBACK_FAILED; else echo EYE_ROLLED_BACK; fi\n")
-            .append("  fi\n  rm -f \"$n0\" \"$n1\"\n  if [ \"$rollback_failed\" = 0 ]; then rm -f \"$b0\" \"$b1\"; rmdir \"$lock\"; fi\n  exit \"$rc\"\n}\ntrap cleanup EXIT\ntrap 'exit 1' HUP INT TERM\n")
-            .append("am force-stop --user 10 ").append(HMD).append("\nam force-stop --user 10 ").append(TARGET).append('\n');
+            .append("  fi\n  rm -f \"$n0\"\n  if [ \"$rollback_failed\" = 0 ]; then rm -f \"$b0\"; rmdir \"$lock\"; fi\n  exit \"$rc\"\n}\ntrap cleanup EXIT\ntrap 'exit 1' HUP INT TERM\n")
+            .append("am force-stop --user 0 ").append(HMD).append("\nam force-stop --user 0 ").append(TARGET).append('\n');
         i = 0;
         for (String original : before.files.values()) {
             script.append("[ -f \"$p").append(i).append("\" ] && [ ! -L \"$p").append(i).append("\" ]\n")
@@ -127,8 +127,8 @@ final class DeviceController {
                 .append("[ \"$(sha256sum \"$n").append(i).append("\" | cut -d ' ' -f1)\" = ").append(hash(xml)).append(" ]\n");
             i++;
         }
-        script.append("changed=1\nmv -f \"$n0\" \"$p0\"\nmv -f \"$n1\" \"$p1\"\n");
-        if (clearLitmatch) script.append("[ \"$(pm clear --user 10 ").append(TARGET).append(")\" = Success ] || { echo EYE_CLEAR_FAILED; exit 1; }\n");
+        script.append("changed=1\nmv -f \"$n0\" \"$p0\"\n");
+        if (clearLitmatch) script.append("[ \"$(pm clear --user 0 ").append(TARGET).append(")\" = Success ] || { echo EYE_CLEAR_FAILED; exit 1; }\n");
         script.append("success=1\necho EYE_APPLIED\n");
         return script.toString();
     }

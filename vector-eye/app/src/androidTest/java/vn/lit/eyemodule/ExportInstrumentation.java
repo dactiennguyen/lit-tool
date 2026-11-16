@@ -32,7 +32,7 @@ public final class ExportInstrumentation extends Instrumentation {
                 getTargetContext().sendBroadcast(request);
                 check(done.await(12, java.util.concurrent.TimeUnit.SECONDS) && exported.get() != null, "Current account export unavailable");
                 JSONObject current = new JSONObject(exported.get());
-                check(current.getInt("androidUser") == 10, "Wrong user");
+                check(current.getInt("androidUser") == 0, "Wrong user");
                 try (java.io.FileOutputStream file = getTargetContext().openFileOutput("current-account-export.json", Context.MODE_PRIVATE)) {
                     file.write(exported.get().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
@@ -41,7 +41,7 @@ public final class ExportInstrumentation extends Instrumentation {
                 return;
             }
             try (android.os.ParcelFileDescriptor fd = getUiAutomation().executeShellCommand(
-                    "am start --user 10 -n com.litatom.app/.DefaultLauncherAlias")) {
+                    "am start --user 0 -n com.litatom.app/.DefaultLauncherAlias")) {
                 try (java.io.FileInputStream in = new java.io.FileInputStream(fd.getFileDescriptor())) {
                     byte[] buffer = new byte[1024];
                     while (in.read(buffer) != -1) { }
@@ -83,7 +83,7 @@ public final class ExportInstrumentation extends Instrumentation {
             });
             JSONObject json = new JSONObject(clipboard.get());
             JSONObject account = json.getJSONObject("account"), profile = json.getJSONObject("profile"), env = json.getJSONObject("env");
-            check(json.getInt("androidUser") == 10, "Wrong Android user");
+            check(json.getInt("androidUser") == 0, "Wrong Android user");
             check(account.getString("userId").equals(profile.getString("user_id")), "Profile mismatch");
             check(account.getString("session").equals(env.getString("LIT_SID")), "Session mismatch");
             check(account.getString("hxPwd").equals(env.getString("HX_PASSWORD")), "Password mismatch");

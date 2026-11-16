@@ -19,7 +19,7 @@ final class RootShell {
             } catch (java.io.IOException error) { lastError = error; }
         }
         if (process == null) {
-            throw new IllegalStateException("Eye chưa chạy được su. Mở trình quản lý root (APatch/KernelSU/Magisk), cấp root cho Eye ở user 10 rồi đóng/mở lại Eye.", lastError);
+            throw new IllegalStateException("Eye chưa chạy được su. Mở trình quản lý root (APatch/KernelSU/Magisk), cấp root cho Eye ở user 0 rồi đóng/mở lại Eye.", lastError);
         }
         final java.lang.Process rootProcess = process;
         AtomicReference<String> output = new AtomicReference<>("");
@@ -39,7 +39,7 @@ final class RootShell {
         boolean exited = rootProcess.waitFor(90, TimeUnit.SECONDS);
         if (!exited) {
             rootProcess.destroy();
-            throw new IllegalStateException("Root chưa hoàn tất. Kiểm tra quyền Eye trong trình quản lý root rồi đọc lại trạng thái trước khi thử lại.");
+            throw new IllegalStateException("Lệnh root quá thời gian; kết quả thay đổi hoặc xóa dữ liệu chưa xác định. Kiểm tra lại Litmatch và cấu hình trước khi thử lại.");
         }
         reader.join(3000);
         if (failure.get() != null) throw failure.get();
