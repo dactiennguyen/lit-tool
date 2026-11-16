@@ -68,6 +68,20 @@ export function clampCount(n: number, max = 5000): number {
   return Math.min(max, Math.max(1, Math.floor(n)));
 }
 
+/**
+ * The senders still eligible to send right now: present in the current selection
+ * AND logged in. A background send re-runs this before every message, so an
+ * account that logs out or gets unticked mid-run is dropped immediately instead
+ * of being used from a list captured when the run started.
+ */
+export function liveSenders<T extends { id: string }>(
+  senders: T[],
+  selectedIds: string[],
+  isLoggedIn: (id: string) => boolean,
+): T[] {
+  return senders.filter((s) => selectedIds.includes(s.id) && isLoggedIn(s.id));
+}
+
 /** Typical connect + send time of one real message, for the estimate only. */
 const SEND_SECONDS = 1.8;
 

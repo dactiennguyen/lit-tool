@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckIcon,
   HistoryIcon,
@@ -35,7 +36,7 @@ import type { Contact, SentRow } from "./sent-log";
 import { TemplateVarBar } from "./template-vars";
 import { TemplatesDialog } from "./templates-dialog";
 import { useTemplates } from "./templates";
-import { useBlast, type BlastSender } from "./use-blast";
+import { useOutreachStore, type BlastSender } from "./outreach-store";
 
 /** The send half: a config column (who, accounts, text, pace) and a live column (preview, progress, log, action). */
 export function AutoSendPanel({
@@ -53,12 +54,23 @@ export function AutoSendPanel({
   online: BlastSender[];
   recent: SentRow[];
 }) {
-  const blast = useBlast();
+  const qc = useQueryClient();
   const templates = useTemplates();
   const settings = useOutreachSettings();
   const { skipContacted, cap, mode, text, delaySec, firstContact } = settings;
-  const locked = blast.running;
-  const onlineKey = online.map((a) => a.id).join(",");
+
+  // Send state lives in the shared store, so leaving and returning to the tab
+  // keeps the progress, log and Stop button; the send also runs in the background.
+  const sending = useOutreachStore((s) => s.sending);
+  const stopping = useOutreachStore((s) => s.stopping);
+  const sendProgress = useOutreachStore((s) => s.sendProgress);
+  const sendLog = useOutreachStore((s) => s.sendLog);
+  const startBlast = useOutreachStore((s) => s.startBlast);
+  const stopBlast = useOutreachStore((s) => s.stopBlast);
+  const clearSendLog = useOutreachStore((s) => s.clearSendLog);
+  const senderIds = useOutreachStore((s) => s.senderIds);
+  const setSenderIds = useOutreachStore((s) => s.setSenderIds);
+  const locked = sending;
 
   // ① recipients
   const eligible = useMemo(
@@ -69,16 +81,7 @@ export function AutoSendPanel({
   const sendable = useMemo(() => eligible.filter((u) => u.huanxinId), [eligible]);
   const targets = useMemo(() => (cap > 0 ? sendable.slice(0, cap) : sendable), [sendable, cap]);
 
-  // ② sender accounts (all online by default; one that logs out drops off)
-  const [senderIds, setSenderIds] = useState<string[]>([]);
-  useEffect(() => {
-    const ids = onlineKey ? onlineKey.split(",") : [];
-    setSenderIds((prev) => {
-      const kept = prev.filter((id) => ids.includes(id));
-      const next = kept.length ? kept : ids;
-      return next.length === prev.length && next.every((v, i) => v === prev[i]) ? prev : next;
-    });
-  }, [onlineKey]);
+  // ② sender accounts come from the shared store (the page defaults them to all online).
   const senders = useMemo(() => online.filter((a) => senderIds.includes(a.id)), [online, senderIds]);
 
   // ③ message
@@ -127,25 +130,28 @@ export function AutoSendPanel({
               : "Tick ít nhất một mẫu tin (bước 3)."
           : null;
 
-  const plannedCount = locked ? blast.progress.total : targets.length;
+  const plannedCount = locked ? sendProgress.total : targets.length;
   const estimate = estimateSeconds(plannedCount, delaySec);
   // Preview with a real recipient when there is one, else a sample, so {ten}… show filled.
   const previewUser = recipients[0] ?? SAMPLE_USER;
   const rawPreview = mode === "single" ? text.trim() : (pool[0] ?? "");
-  const previewText = blast.progress.current ? "" : fillTemplate(rawPreview, previewUser);
+  const previewText = sendProgress.current ? "" : fillTemplate(rawPreview, previewUser);
 
   const run = async () => {
     setDialog(null);
-    const result = await blast.start({
-      senders,
-      targets,
-      delaySec,
-      firstContact,
-      pickText:
-        mode === "single"
-          ? (u) => fillTemplate(text.trim(), u)
-          : (u) => fillTemplate(pool[Math.floor(Math.random() * pool.length)] ?? "", u),
-    });
+    const result = await startBlast(
+      {
+        senders,
+        targets,
+        delaySec,
+        firstContact,
+        pickText:
+          mode === "single"
+            ? (u) => fillTemplate(text.trim(), u)
+            : (u) => fillTemplate(pool[Math.floor(Math.random() * pool.length)] ?? "", u),
+      },
+      qc,
+    );
     const summary = [
       result.stopped ? "Đã dừng." : "Hoàn tất.",
       `Đã gửi ${result.ok} tin`,
@@ -209,7 +215,13 @@ export function AutoSendPanel({
               {online.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {online.map((a) => (
-                    <Chip key={a.id} label={a.label} on={senderIds.includes(a.id)} disabled={locked} onToggle={() => toggleId(setSenderIds, a.id)} />
+                    <Chip
+                      key={a.id}
+                      label={a.label}
+                      on={senderIds.includes(a.id)}
+                      disabled={locked}
+                      onToggle={() => setSenderIds(senderIds.includes(a.id) ? senderIds.filter((x) => x !== a.id) : [...senderIds, a.id])}
+                    />
                   ))}
                 </div>
               ) : (
@@ -333,11 +345,11 @@ export function AutoSendPanel({
             {/* preview */}
             <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {blast.progress.current ? "Đang gửi" : recipients[0] ? "Xem trước" : "Xem trước (ví dụ)"}
+                {sendProgress.current ? "Đang gửi" : recipients[0] ? "Xem trước" : "Xem trước (ví dụ)"}
               </span>
-              {blast.progress.current ? (
+              {sendProgress.current ? (
                 <p className="truncate text-sm">
-                  {blast.progress.current.peer} <span className="text-muted-foreground">qua {blast.progress.current.sender}</span>
+                  {sendProgress.current.peer} <span className="text-muted-foreground">qua {sendProgress.current.sender}</span>
                 </p>
               ) : previewText ? (
                 <p className="max-w-full self-end whitespace-pre-wrap break-words rounded-lg rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">{previewText}</p>
@@ -354,9 +366,9 @@ export function AutoSendPanel({
 
             {/* action */}
             {locked ? (
-              <Button variant="destructive" onClick={blast.stop} disabled={blast.stopping}>
-                {blast.stopping ? <Loader2Icon className="animate-spin" aria-hidden /> : <SquareIcon aria-hidden />}
-                {blast.stopping ? "Đang dừng…" : `Dừng gửi · ${blast.progress.done}/${blast.progress.total}`}
+              <Button variant="destructive" onClick={stopBlast} disabled={stopping}>
+                {stopping ? <Loader2Icon className="animate-spin" aria-hidden /> : <SquareIcon aria-hidden />}
+                {stopping ? "Đang dừng…" : `Dừng gửi · ${sendProgress.done}/${sendProgress.total}`}
               </Button>
             ) : (
               <Button disabled={Boolean(reason)} onClick={onStart}>
@@ -377,22 +389,22 @@ export function AutoSendPanel({
             )}
 
             {/* progress */}
-            {(locked || blast.progress.total > 0) && (
+            {(locked || sendProgress.total > 0) && (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2 text-sm">
                   <span className="font-semibold tabular-nums">
-                    {blast.progress.done}/{blast.progress.total}
+                    {sendProgress.done}/{sendProgress.total}
                   </span>
                   <span className="text-muted-foreground">đã xử lý</span>
                   <span className="flex-1" />
-                  <Badge variant="secondary">{blast.progress.ok} ok</Badge>
-                  {blast.progress.fail > 0 && <Badge variant="destructive">{blast.progress.fail} lỗi</Badge>}
+                  <Badge variant="secondary">{sendProgress.ok} ok</Badge>
+                  {sendProgress.fail > 0 && <Badge variant="destructive">{sendProgress.fail} lỗi</Badge>}
                 </div>
-                <Bar value={blast.progress.done} max={blast.progress.total || 1} />
+                <Bar value={sendProgress.done} max={sendProgress.total || 1} />
               </div>
             )}
 
-            <SendLog entries={blast.log} canClear={!locked} onClear={blast.clearLog} />
+            <SendLog entries={sendLog} canClear={!locked} onClear={clearSendLog} />
           </div>
         </div>
       </div>
@@ -416,10 +428,6 @@ export function AutoSendPanel({
       </AlertDialog>
     </main>
   );
-}
-
-function toggleId(set: (fn: (ids: string[]) => string[]) => void, id: string) {
-  set((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 }
 
 function Step({ n, title, meta, children }: { n: number; title: string; meta?: ReactNode; children: ReactNode }) {

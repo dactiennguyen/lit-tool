@@ -27,11 +27,10 @@ import { cn } from "@/lib/utils";
 import { AutoSendPanel } from "./autosend-panel";
 import { NumberField } from "./number-field";
 import { patchOutreachSettings, useOutreachSettings } from "./outreach-settings";
+import { useOutreachStore, type BlastSender } from "./outreach-store";
 import { clampCount, downloadText, stampName, toCsv, userKey, type StatusText, type Tone } from "./outreach-view";
 import { RecipientList, type ExportFormat } from "./recipient-list";
-import { useCollectOnline } from "./use-collect-online";
 import { useSentHistory } from "./use-sent-history";
-import type { BlastSender } from "./use-blast";
 
 export function OutreachPage() {
   const { data: accounts = [] } = useAccounts();
@@ -42,9 +41,32 @@ export function OutreachPage() {
   );
   const onlineKey = online.map((a) => a.id).join(",");
 
-  const collector = useCollectOnline();
   const history = useSentHistory();
   const settings = useOutreachSettings();
+
+  // Live tab state (collected list, selections, status) lives in a zustand store
+  // so it survives leaving and returning to this tab; collecting keeps running in
+  // the background and its progress is picked up where it left off.
+  const found = useOutreachStore((s) => s.found);
+  const collecting = useOutreachStore((s) => s.collecting);
+  const collectStatus = useOutreachStore((s) => s.collectStatus);
+  const query = useOutreachStore((s) => s.query);
+  const setQuery = useOutreachStore((s) => s.setQuery);
+  const excluded = useOutreachStore((s) => s.excluded);
+  const collectIds = useOutreachStore((s) => s.collectIds);
+  const setCollectIds = useOutreachStore((s) => s.setCollectIds);
+  const toggleExcluded = useOutreachStore((s) => s.toggleExcluded);
+  const selectAll = useOutreachStore((s) => s.selectAll);
+  const selectNone = useOutreachStore((s) => s.selectNone);
+  const collect = useOutreachStore((s) => s.collect);
+  const stopCollect = useOutreachStore((s) => s.stopCollect);
+  const clearFound = useOutreachStore((s) => s.clearFound);
+  const reconcileAccounts = useOutreachStore((s) => s.reconcileAccounts);
+
+  // Default the account picks to all online, dropping any that logged out.
+  useEffect(() => {
+    reconcileAccounts(onlineKey ? onlineKey.split(",") : []);
+  }, [onlineKey, reconcileAccounts]);
 
   // Log every account in from here, so an empty screen doesn't force a trip to
   // "Quản lý account" first. One at a time, like the overview page.
@@ -62,22 +84,10 @@ export function OutreachPage() {
     else toast.success(`Đã đăng nhập ${accounts.length} account`);
   }
 
-  // which accounts do the collecting (default: all online)
-  const [collectIds, setCollectIds] = useState<string[]>([]);
-  useEffect(() => {
-    const ids = onlineKey ? onlineKey.split(",") : [];
-    setCollectIds((prev) => {
-      const kept = prev.filter((id) => ids.includes(id));
-      const next = kept.length ? kept : ids;
-      return next.length === prev.length && next.every((v, i) => v === prev[i]) ? prev : next;
-    });
-  }, [onlineKey]);
-
   // ---- recipient-list filters
-  const [query, setQuery] = useState("");
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return collector.found.filter(
+    return found.filter(
       (u) =>
         (!settings.hideContacted || !history.contacts.has(userKey(u))) &&
         (!q ||
@@ -85,18 +95,10 @@ export function OutreachPage() {
           userKey(u).toLowerCase().includes(q) ||
           (locationOf(u) ?? "").toLowerCase().includes(q)),
     );
-  }, [collector.found, query, settings.hideContacted, history.contacts]);
+  }, [found, query, settings.hideContacted, history.contacts]);
 
   // ---- who gets the message: everyone shown, minus the unticked
-  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const picked = useMemo(() => shown.filter((u) => !excluded.has(userKey(u))), [shown, excluded]);
-  const toggle = (uid: string) =>
-    setExcluded((s) => {
-      const n = new Set(s);
-      if (n.has(uid)) n.delete(uid);
-      else n.add(uid);
-      return n;
-    });
 
   const onExport = (format: ExportFormat) => {
     const rows = shown.map((u) => {
@@ -123,9 +125,8 @@ export function OutreachPage() {
   };
 
   const onClear = () => {
-    const n = collector.found.length;
-    collector.clear();
-    setExcluded(new Set());
+    const n = found.length;
+    clearFound();
     toast.info(`Đã xoá danh sách ${n} người.`);
   };
 
@@ -162,7 +163,7 @@ export function OutreachPage() {
               <div className="flex items-center gap-2">
                 <NumberField
                   value={settings.target}
-                  disabled={collector.running}
+                  disabled={collecting}
                   onCommit={(n) => patchOutreachSettings({ target: clampCount(n) })}
                   className="w-24 tabular-nums"
                   aria-label="Số người cần lấy"
@@ -173,7 +174,7 @@ export function OutreachPage() {
                 <NumberField
                   decimal
                   value={settings.collectDelaySec}
-                  disabled={collector.running}
+                  disabled={collecting}
                   onCommit={(n) => patchOutreachSettings({ collectDelaySec: Math.max(0, n) })}
                   className="w-24 tabular-nums"
                   aria-label="Giãn cách giữa 2 lần lấy (giây)"
@@ -188,33 +189,33 @@ export function OutreachPage() {
                       key={a.id}
                       label={a.label}
                       on={collectIds.includes(a.id)}
-                      disabled={collector.running}
+                      disabled={collecting}
                       onToggle={() =>
-                        setCollectIds((ids) => (ids.includes(a.id) ? ids.filter((x) => x !== a.id) : [...ids, a.id]))
+                        setCollectIds(collectIds.includes(a.id) ? collectIds.filter((x) => x !== a.id) : [...collectIds, a.id])
                       }
                     />
                   ))}
                 </div>
               </div>
-              {(collector.running || collector.found.length > 0) && (
-                <Bar value={Math.min(collector.found.length, settings.target)} max={settings.target} />
+              {(collecting || found.length > 0) && (
+                <Bar value={Math.min(found.length, settings.target)} max={settings.target} />
               )}
-              {collector.running ? (
-                <Button variant="destructive" size="sm" onClick={collector.stop}>
+              {collecting ? (
+                <Button variant="destructive" size="sm" onClick={stopCollect}>
                   <SquareIcon aria-hidden />
                   Dừng lấy
                 </Button>
               ) : (
-                <Button size="sm" disabled={collectIds.length === 0} onClick={() => void collector.collect(collectIds, settings.target, settings.collectDelaySec)}>
+                <Button size="sm" disabled={collectIds.length === 0} onClick={() => void collect(collectIds, settings.target, settings.collectDelaySec)}>
                   <DownloadIcon aria-hidden />
-                  {collector.found.length ? "Lấy lại" : "Lấy danh sách"}
+                  {found.length ? "Lấy lại" : "Lấy danh sách"}
                 </Button>
               )}
-              {collector.status && <StatusLine status={collector.status} busy={collector.running} />}
+              {collectStatus && <StatusLine status={collectStatus} busy={collecting} />}
             </section>
 
             <RecipientList
-              found={collector.found}
+              found={found}
               shown={shown}
               contacts={history.contacts}
               query={query}
@@ -223,12 +224,12 @@ export function OutreachPage() {
               onHideContacted={(v) => patchOutreachSettings({ hideContacted: v })}
               isPicked={(uid) => !excluded.has(uid)}
               pickedCount={picked.length}
-              onToggle={toggle}
-              onSelectAll={() => setExcluded(new Set())}
-              onSelectNone={() => setExcluded(new Set(shown.map(userKey)))}
+              onToggle={toggleExcluded}
+              onSelectAll={selectAll}
+              onSelectNone={() => selectNone(shown.map(userKey))}
               onExport={onExport}
               onClear={onClear}
-              busy={collector.running}
+              busy={collecting}
             />
           </aside>
 

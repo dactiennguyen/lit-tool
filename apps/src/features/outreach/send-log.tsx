@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { CircleCheckIcon, CircleXIcon, InboxIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { BlastLogEntry } from "./use-blast";
+import type { BlastLogEntry } from "./outreach-store";
 
 type Filter = "all" | "ok" | "fail";
 

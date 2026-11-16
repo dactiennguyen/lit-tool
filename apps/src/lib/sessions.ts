@@ -48,6 +48,13 @@ function current(account: Pick<Account, "id" | "sessionSavedAt">, map: ReadonlyM
 /** Current state outside React. */
 export const getSession = (account: Pick<Account, "id" | "sessionSavedAt">) => current(account, sessions);
 
+/**
+ * Whether this account is logged in right now, by id alone — a logout removes the
+ * entry and an auth error flips it, so both make this false. For background jobs
+ * (e.g. the outreach send loop) that must re-check login between steps.
+ */
+export const isAccountLoggedIn = (accountId: string): boolean => sessions.get(accountId)?.state === "in";
+
 export function useSession(account: Pick<Account, "id" | "sessionSavedAt">): SessionState {
   const map = useSyncExternalStore(subscribe, () => sessions);
   return current(account, map);

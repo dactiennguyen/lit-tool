@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillTemplate, type TemplateUser } from "./outreach-view";
+import { fillTemplate, liveSenders, type TemplateUser } from "./outreach-view";
 
 const linh: TemplateUser = {
   nickname: "Linh",
@@ -42,5 +42,29 @@ describe("fillTemplate", () => {
 
   it("drops missing optional fields to empty", () => {
     expect(fillTemplate("{tuoi}{gioitinh}{noio}{id}", blank)).toBe("");
+  });
+});
+
+describe("liveSenders", () => {
+  const senders = [
+    { id: "a", label: "A" },
+    { id: "b", label: "B" },
+  ];
+
+  it("keeps only accounts that are both selected and logged in", () => {
+    expect(liveSenders(senders, ["a", "b"], () => true)).toHaveLength(2);
+  });
+
+  it("drops an account that logged out mid-run", () => {
+    expect(liveSenders(senders, ["a", "b"], (id) => id === "a")).toEqual([{ id: "a", label: "A" }]);
+  });
+
+  it("drops an account that was unticked mid-run", () => {
+    expect(liveSenders(senders, ["a"], () => true)).toEqual([{ id: "a", label: "A" }]);
+  });
+
+  it("returns none when all senders logged out or were cleared", () => {
+    expect(liveSenders(senders, ["a", "b"], () => false)).toEqual([]);
+    expect(liveSenders(senders, [], () => true)).toEqual([]);
   });
 });
