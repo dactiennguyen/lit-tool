@@ -2,7 +2,7 @@
 // online_users) up to a chosen count, shows them in a pickable list, then sends
 // a message (fixed or random from templates) rotating through several accounts.
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,7 @@ import {
   DownloadIcon,
   Loader2Icon,
   LogInIcon,
+  MessageCircleReplyIcon,
   SquareIcon,
   TriangleAlertIcon,
   UsersIcon,
@@ -24,6 +25,7 @@ import { GENDER_LABEL, genderOf, locationOf } from "@/lib/lit/lit-format";
 import { useAccounts } from "@/lib/queries";
 import { useSessions } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
+import { AutoReplyDialog } from "./auto-reply-dialog";
 import { AutoSendPanel } from "./autosend-panel";
 import { NumberField } from "./number-field";
 import { patchOutreachSettings, useOutreachSettings } from "@/features/outreach/store/outreach-settings";
@@ -125,9 +127,21 @@ export function OutreachPage() {
     toast.info(`Đã xoá danh sách ${n} người.`);
   };
 
+  const [autoReplyOpen, setAutoReplyOpen] = useState(false);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader title="Lấy & gửi" description="Lấy người đang online rồi gửi tin bằng nhiều account (gửi lần lượt)." />
+      <PageHeader
+        title="Lấy & gửi"
+        description="Lấy người đang online rồi gửi tin bằng nhiều account (gửi lần lượt)."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => setAutoReplyOpen(true)}>
+            <MessageCircleReplyIcon aria-hidden />
+            Tự động trả lời
+          </Button>
+        }
+      />
+      <AutoReplyDialog open={autoReplyOpen} onOpenChange={setAutoReplyOpen} />
 
       {online.length === 0 ? (
         <EmptyState

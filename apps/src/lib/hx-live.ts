@@ -33,6 +33,15 @@ export function applyLiveMessage(qc: QueryClient, e: LiveMessageEvent): void {
   }
 }
 
+/** Extra per-message subscribers (e.g. auto-reply) fed from the "hx-message" event. */
+const messageListeners = new Set<(e: LiveMessageEvent) => void>();
+
+/** Hear every heard message (both directions); returns an unsubscribe. */
+export function onLiveMessage(fn: (e: LiveMessageEvent) => void): () => void {
+  messageListeners.add(fn);
+  return () => void messageListeners.delete(fn);
+}
+
 let started = false;
 
 /** Subscribes once for the app run, then reads the connections already open (e.g. after a reload). */
@@ -45,7 +54,10 @@ export function startLiveEvents(qc: QueryClient): void {
       applyLiveState(accountId, state);
       addTcpLog(accountId, { at: Date.now(), dir: "state", state });
     }),
-    listen<LiveMessageEvent>("hx-message", ({ payload }) => applyLiveMessage(qc, payload)),
+    listen<LiveMessageEvent>("hx-message", ({ payload }) => {
+      applyLiveMessage(qc, payload);
+      for (const fn of messageListeners) fn(payload);
+    }),
     listen<LiveLogEvent>("hx-log", ({ payload: { accountId, ...line } }) => addTcpLog(accountId, line)),
     listen<HttpLogEvent>("http-log", ({ payload }) => addHttpLog(payload)),
   ])

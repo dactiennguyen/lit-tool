@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { router } from "@/app/router";
 import { noteQueryError } from "@/stores/sessions";
 import { startLiveEvents } from "@/lib/hx-live";
+import { startAutoReply } from "@/features/outreach/lib/auto-reply-engine";
 import { applyTheme, readStoredTheme, resolveTheme } from "@/stores/theme";
 import "./index.css";
 
@@ -27,6 +28,7 @@ const queryClient = new QueryClient({
   },
 });
 startLiveEvents(queryClient);
+startAutoReply(queryClient);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
