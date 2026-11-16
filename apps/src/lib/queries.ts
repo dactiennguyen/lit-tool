@@ -110,7 +110,11 @@ export function useSavedConversations(accountId: string | undefined) {
   });
 }
 
-export function useUserInfo(accountId: string | undefined, targetId: string | undefined) {
+export function useUserInfo(
+  accountId: string | undefined,
+  targetId: string | undefined,
+  options: { refetchInterval?: number } = {},
+) {
   return useQuery({
     queryKey: [...queryKeys.lit, "user_info", accountId, targetId],
     queryFn: async () => {
@@ -121,6 +125,7 @@ export function useUserInfo(accountId: string | undefined, targetId: string | un
     enabled: !!accountId && !!targetId,
     retry: false,
     staleTime: 60_000,
+    refetchInterval: options.refetchInterval,
   });
 }
 

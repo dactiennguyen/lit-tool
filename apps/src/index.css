@@ -62,12 +62,14 @@
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
+    /* 0.54: 4.6:1 on muted surfaces too (0.556 gave 4.3:1). */
+    --muted-foreground: oklch(0.54 0 0);
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
     --success: oklch(0.5 0.14 152);
-    --warning: oklch(0.7 0.15 75);
+    /* Amber dark enough for text on white (5:1); the old 0.7 gave 2.7:1. */
+    --warning: oklch(0.555 0.163 49);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.5 0.14 152);

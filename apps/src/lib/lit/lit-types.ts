@@ -30,6 +30,8 @@ export interface ActiveInfo {
   time: number | null;
   /** Server-localised text, e.g. "Hoạt động". */
   timeDesc: string | null;
+  /** The green "online" light of the Litmatch app. */
+  showLight: boolean | null;
 }
 
 export interface VipInfo {

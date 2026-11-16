@@ -25,6 +25,34 @@ export function moodOf(user: Pick<UserProfile, "moodStatusInfo">): string | null
   return mood && mood.isShow !== false ? mood.moodName : null;
 }
 
+export interface Presence {
+  online: boolean;
+  text: string;
+}
+
+/**
+ * Whether the person is online, from `activeInfo`: the green light means
+ * online; otherwise the server's text ("2 giờ trước"), or the last active time.
+ * Null when the profile says nothing.
+ */
+export function presenceOf(user: Pick<UserProfile, "activeInfo">, now = Date.now()): Presence | null {
+  const a = user.activeInfo;
+  if (!a) return null;
+  if (a.showLight) return { online: true, text: "Đang online" };
+  if (a.timeDesc) return { online: false, text: a.timeDesc };
+  if (a.time) return { online: false, text: `Hoạt động ${sinceText(now - a.time * 1000)}` };
+  return null;
+}
+
+function sinceText(ms: number): string {
+  const min = Math.max(0, Math.floor(ms / 60_000));
+  if (min < 1) return "vừa xong";
+  if (min < 60) return `${min} phút trước`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} giờ trước`;
+  return `${Math.floor(h / 24)} ngày trước`;
+}
+
 /** Tag names, at most `limit`. */
 export function tagNames(user: Pick<UserProfile, "tags">, limit = Infinity): string[] {
   return user.tags.flatMap((t) => (t.tagName ? [t.tagName] : [])).slice(0, limit);

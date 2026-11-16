@@ -23,7 +23,7 @@ describe("toProfileView", () => {
       { label: "Người theo dõi", value: "0" },
       { label: "Đang theo dõi", value: "0" },
       { label: "VIP", value: "Không" },
-      { label: "Hoạt động", value: "Hoạt động" },
+      { label: "Hoạt động", value: "Đang online" },
       { label: "Ngày tạo", value: formatDate(1700000000) },
       { label: "IM ID", value: "love000000000000000001" },
     ]);

@@ -36,7 +36,8 @@
         "createTime": 1700000000,
         "activeInfo": {
           "time": 1700000000,
-          "timeDesc": "Hoạt động"
+          "timeDesc": "Hoạt động",
+          "showLight": true
         },
         "birthdate": null,
         "accountInfo": null,

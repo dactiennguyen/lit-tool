@@ -19,7 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { Account } from "@/lib/api";
 import type { Peer } from "@/stores/peer-directory";
-import { useHistory, useSendText } from "@/lib/queries";
+import { useHistory, useSendText, useUserInfo } from "@/lib/queries";
+import { presenceOf } from "@/lib/lit/lit-format";
 import { markRead } from "@/stores/read-markers";
 import { isLive, useTcpStatus } from "@/stores/tcp-status";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,10 @@ export function ThreadPane({
   const [viewing, setViewing] = useState<UserRef | null>(null);
   const name = peer?.name ?? shortId(conversation.id);
   const isGroup = conversation.type === 1;
+  // Online status from the person's profile, re-read every 2 minutes while the chat is open.
+  // Needs their Litmatch user id, known once they were seen in a list or a profile.
+  const profile = useUserInfo(account.id, isGroup ? undefined : (peer?.userId ?? undefined), { refetchInterval: 120_000 });
+  const presence = profile.data ? presenceOf(profile.data) : null;
 
   return (
     <>
@@ -70,7 +75,17 @@ export function ThreadPane({
             {conversation.isNew && <Badge variant="secondary">Hội thoại mới</Badge>}
             {isGroup && <Badge variant="outline">Nhóm</Badge>}
           </p>
-          <p className="truncate font-mono text-[11px] text-muted-foreground">{conversation.id}</p>
+          {presence ? (
+            <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground" title={`IM ID ${conversation.id}`}>
+              <span
+                className={cn("size-2 shrink-0 rounded-full", presence.online ? "bg-success" : "bg-muted-foreground/40")}
+                aria-hidden
+              />
+              <span className={cn("truncate", presence.online && "text-success")}>{presence.text}</span>
+            </p>
+          ) : (
+            <p className="truncate font-mono text-[11px] text-muted-foreground">{conversation.id}</p>
+          )}
         </div>
         {peer?.userId && (
           <Button

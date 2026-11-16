@@ -1,6 +1,6 @@
 // Display fields for a typed profile (own profile or another user's).
 
-import { GENDER_LABEL, genderOf, locationOf, moodOf, safeImageUrl, tagNames } from "@/lib/lit/lit-format";
+import { GENDER_LABEL, genderOf, locationOf, moodOf, presenceOf, safeImageUrl, tagNames } from "@/lib/lit/lit-format";
 import type { UserProfile } from "@/lib/lit/lit-types";
 
 export interface ProfileRow {
@@ -41,7 +41,7 @@ export function toProfileView(p: UserProfile): ProfileView {
     ["Người theo dõi", p.follower],
     ["Đang theo dõi", p.following],
     ["VIP", vipText(p)],
-    ["Hoạt động", p.activeInfo?.timeDesc ?? null],
+    ["Hoạt động", presenceOf(p)?.text ?? null],
     ["Ngày tạo", p.createTime ? formatDate(p.createTime) : null],
     ["IM ID", p.huanxinId],
   ];

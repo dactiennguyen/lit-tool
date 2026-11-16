@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { genderOf, locationOf, moodOf, safeImageUrl, tagNames } from "./lit-format";
+import { genderOf, locationOf, moodOf, presenceOf, safeImageUrl, tagNames } from "./lit-format";
 import { makeProfile } from "./lit-types.test-utils";
+
+describe("presenceOf", () => {
+  const at = (activeInfo: Parameters<typeof presenceOf>[0]["activeInfo"]) => presenceOf({ activeInfo }, 10_000_000_000);
+  it("is online with the green light, else says when", () => {
+    expect(at({ time: 1, timeDesc: "Hoạt động", showLight: true })).toEqual({ online: true, text: "Đang online" });
+    expect(at({ time: 1, timeDesc: "2 giờ trước", showLight: false })).toEqual({ online: false, text: "2 giờ trước" });
+    expect(at({ time: 10_000_000 - 3 * 3600, timeDesc: null, showLight: null })).toEqual({ online: false, text: "Hoạt động 3 giờ trước" });
+    expect(at({ time: null, timeDesc: null, showLight: null })).toBeNull();
+    expect(at(null)).toBeNull();
+  });
+});
 
 describe("lit-format", () => {
   it("maps server genders", () => {

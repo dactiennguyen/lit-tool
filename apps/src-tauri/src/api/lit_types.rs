@@ -61,6 +61,9 @@ pub struct ActiveInfo {
     /// Server-localised text, e.g. "Hoạt động".
     #[serde(default, deserialize_with = "lenient::string")]
     pub time_desc: Option<String>,
+    /// The green "online" light of the Litmatch app; absent means unknown.
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    pub show_light: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -357,6 +360,7 @@ mod tests {
         assert_eq!(p.tags[0].tag_name.as_deref(), Some("Thể thao"));
         assert_eq!(p.mood_status_info.as_ref().unwrap().mood_name.as_deref(), Some("Muốn chat"));
         assert_eq!(p.active_info.as_ref().unwrap().time_desc.as_deref(), Some("Hoạt động"));
+        assert_eq!(p.active_info.as_ref().unwrap().show_light, Some(true));
         assert_eq!(p.vip_info.as_ref().unwrap().level, Some(0));
         assert_eq!(p.birthdate.as_deref(), Some("2000-01-01"));
         assert_eq!(p.account_info.as_ref().unwrap().diamonds, Some(0));
