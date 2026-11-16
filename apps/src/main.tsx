@@ -4,10 +4,10 @@ import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-qu
 import { RouterProvider } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { router } from "@/router";
-import { noteQueryError } from "@/lib/sessions";
+import { router } from "@/app/router";
+import { noteQueryError } from "@/stores/sessions";
 import { startLiveEvents } from "@/lib/hx-live";
-import { applyTheme, readStoredTheme, resolveTheme, ThemeProvider } from "@/lib/theme";
+import { applyTheme, readStoredTheme, resolveTheme } from "@/stores/theme";
 import "./index.css";
 
 // Apply the saved theme before the first paint (no inline script: CSP forbids it).
@@ -30,13 +30,11 @@ startLiveEvents(queryClient);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <RouterProvider router={router} />
-          <Toaster position="bottom-right" />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <RouterProvider router={router} />
+        <Toaster position="bottom-right" />
+      </TooltipProvider>
+    </QueryClientProvider>
   </React.StrictMode>,
 );

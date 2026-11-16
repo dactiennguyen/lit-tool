@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Account } from "@/lib/api";
 import { useConnectTcp } from "@/lib/queries";
-import { disconnectTcp, isLive, type TcpStatus } from "@/lib/tcp-status";
+import { disconnectTcp, isLive, type TcpStatus } from "@/stores/tcp-status";
 
 /**
  * Opens the live chat connection, or closes it while it is open. Says what is

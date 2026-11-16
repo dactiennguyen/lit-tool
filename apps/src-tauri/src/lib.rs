@@ -1,28 +1,19 @@
-mod accounts;
+mod api;
+mod app;
 mod chat;
-mod chat_store;
-mod db;
-mod dfpid;
-mod http;
-mod hx;
-mod inspect;
-mod listen;
-mod lit;
-mod lit_types;
-mod msync;
-mod proxy;
-mod settings;
-mod siua;
-mod store;
-mod transfer;
-mod update;
-mod window;
+mod net;
+mod storage;
 
 use tauri::Manager;
 
-use accounts::{AccountRegistry, KeyringStore};
-use db::Db;
-use settings::SettingsStore;
+use api::{dfpid, lit};
+use app::{update, window};
+use chat::{commands, listen, store as chat_store};
+use net::http;
+use storage::accounts::{self, AccountRegistry, KeyringStore};
+use storage::db::Db;
+use storage::settings::{self, SettingsStore};
+use storage::transfer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -38,7 +29,7 @@ pub fn run() {
             app.manage(AccountRegistry::open(db.clone())?);
             app.manage(chat_store::ChatStore::new(db.clone()));
             app.manage(SettingsStore::open(db)?);
-            app.manage(chat::HxTokens::default());
+            app.manage(commands::HxTokens::default());
             app.manage(listen::Listeners::default());
             app.manage(dfpid::DeviceRefresh::default());
             http::init(app.handle());
@@ -60,7 +51,7 @@ pub fn run() {
             transfer::accounts_export_file,
             transfer::accounts_read_file,
             transfer::accounts_import_text,
-            chat::hx_probe_servers,
+            commands::hx_probe_servers,
             accounts::accounts_recovered_backup,
             settings::settings_get,
             settings::settings_update,
@@ -71,8 +62,8 @@ pub fn run() {
             lit::lit_user_info_me,
             lit::lit_conversations,
             lit::lit_feeds,
-            chat::hx_history,
-            chat::hx_send_text,
+            commands::hx_history,
+            commands::hx_send_text,
             chat_store::chat_saved_conversations,
             listen::hx_listen_start,
             listen::hx_listen_stop,

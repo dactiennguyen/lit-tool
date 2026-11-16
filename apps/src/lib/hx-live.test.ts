@@ -1,7 +1,7 @@
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { applyLiveMessage } from "./hx-live";
-import type { ChatMessage, HistoryPage } from "./lit-types";
+import type { ChatMessage, HistoryPage } from "@/lib/lit/lit-types";
 import { conversationsKey, historyKey, latestKey } from "./queries";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));

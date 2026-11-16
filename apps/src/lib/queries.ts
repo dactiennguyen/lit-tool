@@ -1,8 +1,8 @@
 import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChatMessage, Conversation, SavedConversation } from "./lit-types";
-import { rememberPeers, rememberSender } from "./peer-directory";
-import { compareIds } from "./read-markers";
-import { connectTcp, getTcpStatus, isLive, isTcpError, setTcpStatus, useTcpStatus } from "./tcp-status";
+import type { ChatMessage, Conversation, SavedConversation } from "@/lib/lit/lit-types";
+import { rememberPeers, rememberSender } from "@/stores/peer-directory";
+import { compareIds } from "@/stores/read-markers";
+import { connectTcp, getTcpStatus, isLive, isTcpError, setTcpStatus, useTcpStatus } from "@/stores/tcp-status";
 import { api, type Account, type AccountPatch, type AppSettings, type NewAccount, type SettingsPatch } from "./api";
 
 export const queryKeys = {
@@ -99,7 +99,7 @@ export const useAccountInfo = (accountId: string | undefined) => useQuery(litQue
 export const useUserInfoMe = (accountId: string | undefined) => useQuery(litQueries.userInfoMe(accountId));
 export const useConversations = (accountId: string | undefined) => useQuery(litQueries.conversations(accountId));
 
-/** The account's saved conversations (chat_store.rs), read from disk each time the chat list mounts. */
+/** The account's saved conversations (chat/store.rs), read from disk each time the chat list mounts. */
 export function useSavedConversations(accountId: string | undefined) {
   return useQuery({
     queryKey: savedConversationsKey(accountId),

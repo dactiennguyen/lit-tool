@@ -10,7 +10,7 @@ import type {
   SendOutcome,
   UserProfile,
   Wallet,
-} from "./lit-types";
+} from "@/lib/lit/lit-types";
 
 export interface Account {
   id: string;
@@ -61,7 +61,7 @@ export interface ImIdentity {
   savedAt: number;
 }
 
-/** Where the live chat connection of an account stands (listen.rs `LiveState`). Times in ms since the epoch. */
+/** Where the live chat connection of an account stands (chat/listen `LiveState`). Times in ms since the epoch. */
 export type LiveState =
   | { state: "connecting" }
   | { state: "live"; since: number }

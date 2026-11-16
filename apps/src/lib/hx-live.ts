@@ -7,11 +7,11 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { api, type HttpLogEvent, type LiveLogEvent, type LiveMessageEvent, type LiveStatusEvent } from "./api";
-import { addHttpLog, addTcpLog } from "./hx-log";
-import type { ChatMessage, Conversation, HistoryPage } from "./lit-types";
-import { rememberSender } from "./peer-directory";
+import { addHttpLog, addTcpLog } from "@/stores/hx-log";
+import type { ChatMessage, Conversation, HistoryPage } from "@/lib/lit/lit-types";
+import { rememberSender } from "@/stores/peer-directory";
 import { conversationsKey, historyKey, latestKey, newestMessage } from "./queries";
-import { applyLiveState } from "./tcp-status";
+import { applyLiveState } from "@/stores/tcp-status";
 
 /** Adds one heard message to the caches of its conversation. */
 export function applyLiveMessage(qc: QueryClient, e: LiveMessageEvent): void {

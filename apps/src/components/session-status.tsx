@@ -1,5 +1,5 @@
 import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from "lucide-react";
-import type { SessionState } from "@/lib/sessions";
+import type { SessionState } from "@/stores/sessions";
 import { cn } from "@/lib/utils";
 
 const timeFmt = new Intl.DateTimeFormat("vi-VN", { timeStyle: "short" });

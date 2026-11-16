@@ -1,5 +1,5 @@
 import { Loader2Icon, PlugIcon, PlugZapIcon, RadioIcon, UnplugIcon } from "lucide-react";
-import type { TcpStatus } from "@/lib/tcp-status";
+import type { TcpStatus } from "@/stores/tcp-status";
 import { cn } from "@/lib/utils";
 
 const timeFmt = new Intl.DateTimeFormat("vi-VN", { timeStyle: "short" });
