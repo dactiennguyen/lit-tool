@@ -152,6 +152,15 @@ pub fn stop(app: &AppHandle, account_id: Uuid) {
     emit_state(app, account_id, LiveState::Stopped { at: now(), message: None });
 }
 
+/// Connects again when the account is listening, so the connection goes
+/// through its proxy as it is now.
+pub fn restart(app: &AppHandle, account_id: Uuid) {
+    if app.state::<Listeners>().lock().contains_key(&account_id) {
+        stop(app, account_id);
+        start(app, account_id);
+    }
+}
+
 /// Connects, listens, and connects again after a pause while that is worth it.
 async fn run(app: AppHandle, account_id: Uuid, generation: u64, mut outbox: mpsc::Receiver<Outgoing>) {
     let mut seen = Seen::default();
@@ -208,7 +217,15 @@ fn end_of(e: CommandError) -> End {
 }
 
 fn link<'a>(session: &'a Session, login: &'a [u8], sync: bool) -> Link<'a> {
-    Link { host: &session.host, port: session.port, login, me: &session.template.username, timing: TIMING, sync }
+    Link {
+        host: &session.host,
+        port: session.port,
+        login,
+        me: &session.template.username,
+        timing: TIMING,
+        sync,
+        proxy: session.proxy.as_ref(),
+    }
 }
 
 async fn connect_once(

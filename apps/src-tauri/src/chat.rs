@@ -136,6 +136,8 @@ pub(crate) struct Session {
     pub template: LoginTemplate,
     password: String,
     fingerprint: [u8; 32],
+    /// The account's proxy while it is turned on: the chat connection goes through it.
+    pub proxy: Option<crate::proxy::Proxy>,
 }
 
 /// Where the token came from: only a cached one is worth replacing on rejection.
@@ -149,9 +151,9 @@ impl Session {
     pub async fn load(app: &tauri::AppHandle, account_id: Uuid) -> Result<Self> {
         let handle = app.clone();
         // Secret reads touch the disk (and, once, the old keychain): keep them off the async workers.
-        let ((username, password), client) = tauri::async_runtime::spawn_blocking(move || {
+        let ((username, password), client, proxy) = tauri::async_runtime::spawn_blocking(move || {
             let registry = handle.state::<AccountRegistry>();
-            Ok::<_, CommandError>((registry.im_material(account_id)?, registry.im_client(account_id)?))
+            Ok::<_, CommandError>((registry.im_material(account_id)?, registry.im_client(account_id)?, registry.active_proxy(account_id)))
         })
         .await
         .map_err(|e| HxError::Invalid(format!("Lỗi nội bộ: {e}")))??;
@@ -168,6 +170,7 @@ impl Session {
             rest_base,
             template,
             password,
+            proxy,
         })
     }
 

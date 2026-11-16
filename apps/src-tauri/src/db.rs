@@ -1,7 +1,7 @@
 //! SQLite storage: `sky.db` in the app data dir, readable by the current user
 //! only (mode 600 on Unix). Not encrypted.
 //!
-//! Tables: `accounts` (metadata), `secrets` (sid, IM passwords, saved login
+//! Tables: `accounts` (metadata, the proxy without its password), `secrets` (sid, IM passwords, proxy passwords, saved login
 //! template; a NULL value means deleted or known-absent) and `settings`
 //! (key -> JSON value), and `conversations` (the chat list of each account,
 //! chat_store.rs). Writes that belong together go in one transaction.
@@ -11,7 +11,7 @@
 //! renamed to `*.migrated`; a secret still missing is looked up in the keychain
 //! once and the outcome recorded, so the keychain is never asked twice.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -19,11 +19,12 @@ use std::sync::Mutex;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::accounts::{Account, SecretStore};
+use crate::proxy::Proxy;
 use crate::settings::AppSettings;
 use crate::store::now_ms;
 
 const FILE_NAME: &str = "sky.db";
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// Version 1.
 const SCHEMA: &str = "
@@ -182,6 +183,10 @@ impl Db {
             if version < 5 {
                 tx.execute_batch(MIGRATE_V5)?;
             }
+            if version < 6 {
+                // The account's proxy (proxy.rs) without its password, which is the secret `<id>.proxy`.
+                tx.execute_batch("ALTER TABLE accounts ADD COLUMN proxy TEXT;")?;
+            }
             // Into the current schema: the JSON files predate the database.
             let imported = if version < 1 { import_json_files(tx, dir)? } else { Vec::new() };
             tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -264,6 +269,7 @@ fn account_from_row(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         session_saved_at: r.get::<_, Option<i64>>(8)?.map(|v| v as u64),
         im,
         im_client,
+        proxy: None,
         device_enabled: r.get(13)?,
         device: r.get::<_, Option<String>>(12)?.map(|v| serde_json::from_str(&v)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Text, Box::new(e)))).transpose()?,
@@ -302,6 +308,41 @@ pub fn update_account(c: &Connection, a: &Account) -> rusqlite::Result<()> {
 pub fn delete_account(c: &Connection, id: uuid::Uuid) -> rusqlite::Result<bool> {
     c.execute("DELETE FROM conversations WHERE account_id = ?1", [id.to_string()])?;
     Ok(c.execute("DELETE FROM accounts WHERE id = ?1", [id.to_string()])? == 1)
+}
+
+/// Key of an account's proxy password in `secrets`.
+pub fn proxy_key(id: uuid::Uuid) -> String {
+    format!("{id}.proxy")
+}
+
+/// Every saved proxy (on or off) with its password, by account.
+pub fn load_proxies(c: &Connection) -> rusqlite::Result<HashMap<uuid::Uuid, Proxy>> {
+    let mut stmt = c.prepare(
+        "SELECT a.id, a.proxy, s.value FROM accounts a
+         LEFT JOIN secrets s ON s.key = a.id || '.proxy'
+         WHERE a.proxy IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)))?;
+    let mut proxies = HashMap::new();
+    for row in rows {
+        let (id, json, password) = row?;
+        // A row we wrote ourselves; an unreadable one only loses its proxy.
+        let (Ok(id), Ok(mut proxy)) = (uuid::Uuid::parse_str(&id), serde_json::from_str::<Proxy>(&json)) else { continue };
+        proxy.password = password.unwrap_or_default();
+        proxies.insert(id, proxy);
+    }
+    Ok(proxies)
+}
+
+/// Saves (or, with None, removes) an account's proxy: the password apart, as a secret.
+pub fn put_proxy(c: &Connection, id: uuid::Uuid, proxy: Option<&Proxy>) -> rusqlite::Result<()> {
+    let json = proxy.map(|p| serde_json::to_string(&Proxy { password: String::new(), ..p.clone() }).expect("a proxy serializes"));
+    let changed = c.execute("UPDATE accounts SET proxy = ?2 WHERE id = ?1", params![id.to_string(), json])?;
+    if changed != 1 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    let password = proxy.map(|p| p.password.as_str()).filter(|p| !p.is_empty());
+    put_secret(c, &proxy_key(id), password)
 }
 
 fn account_params(a: &Account) -> impl rusqlite::Params + '_ {

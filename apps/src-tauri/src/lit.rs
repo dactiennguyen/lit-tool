@@ -1,8 +1,6 @@
 //! Litmatch API client: request signing and response decoding.
 //! Port of scripts/src/lit/request.ts, client.ts and crypto/{litsign,shadow}.ts.
 
-use std::sync::OnceLock;
-use std::time::Duration;
 
 use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 use base64::Engine;
@@ -19,7 +17,6 @@ const LITSIGN_SALT: &str = "R@s9!bu8";
 const STS_HMAC_KEY: &[u8] = b"I am your father";
 const SHADOW_KEY_3: &[u8; 32] = b"f1c9208ccd8ef6d85c44b451da593cd4";
 const API_PREFIX: &str = "/api/sns/v1/lit/";
-const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 /// Same order and values as COMMON_QUERY_DEFAULTS in scripts/src/lit/profile.ts.
@@ -326,24 +323,14 @@ pub fn decode_response(
     })
 }
 
-/// One client for the whole app, so connections and TLS sessions are reused.
-pub(crate) fn http_client() -> Result<&'static reqwest::Client, LitError> {
-    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .timeout(HTTP_TIMEOUT)
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map_err(|e| LitError::Network(e.clone()))
+/// The client for a request of `account_id` (through its proxy when it has one on; crate::http::client).
+pub(crate) fn http_client(account_id: Option<uuid::Uuid>) -> Result<reqwest::Client, LitError> {
+    crate::http::client(account_id).map_err(LitError::Network)
 }
 
 /// Sends a signed GET, or a POST when the request has a body.
 pub async fn send(req: SignedRequest, account_id: uuid::Uuid) -> Result<serde_json::Value, LitError> {
-    let client = http_client()?;
+    let client = http_client(Some(account_id))?;
     let mut builder = match req.body {
         Some(body) => client.post(req.url).body(body),
         None => client.get(req.url),

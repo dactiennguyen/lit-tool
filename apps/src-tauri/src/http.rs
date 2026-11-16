@@ -21,6 +21,17 @@ pub fn init(app: &AppHandle) {
     let _ = APP.set(app.clone());
 }
 
+/// The HTTP client for a request of `account_id`: through its proxy while it
+/// has one turned on, direct otherwise (and for requests of no account).
+pub fn client(account_id: Option<Uuid>) -> Result<reqwest::Client, String> {
+    use tauri::Manager;
+    let proxy = match (APP.get(), account_id) {
+        (Some(app), Some(id)) => app.state::<crate::accounts::AccountRegistry>().active_proxy(id),
+        _ => None,
+    };
+    crate::proxy::client(proxy.as_ref())
+}
+
 /// Who a request is for, for the log.
 #[derive(Debug, Clone, Copy)]
 pub struct Trace {

@@ -10,7 +10,8 @@
 //!
 //! Secrets never pass through the webview: it only gives the file path and the
 //! password. Import adds accounts whose device UUID is new and skips the rest.
-//! The device setup (JSON, DFPID refresh) is not exported.
+//! The proxy goes with its password; an imported one is not tested. The device
+//! setup (JSON, DFPID refresh) is not exported.
 
 use std::path::Path;
 
@@ -87,6 +88,9 @@ struct Exported {
     dfpid: Option<String>,
     sid: String,
     im: Option<ImCredentials>,
+    /// The saved proxy, on or off, with its password (files of earlier builds have none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proxy: Option<crate::proxy::Proxy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -204,6 +208,7 @@ fn collect(registry: &AccountRegistry) -> (Vec<Exported>, Vec<String>) {
             dfpid: account.dfpid,
             sid,
             im,
+            proxy: registry.proxy(account.id),
         });
     }
     (exported, skipped)
@@ -228,6 +233,7 @@ fn restore(registry: &AccountRegistry, accounts: Vec<Exported>) -> ImportReport 
             device: None,
             device_enabled: false,
             sid: a.sid,
+            proxy: a.proxy.map(Into::into),
         };
         match registry.add(new) {
             Ok(account) => {
@@ -327,6 +333,7 @@ mod tests {
             device: None,
             device_enabled: false,
             sid: sid.into(),
+            proxy: None,
         }
     }
 
@@ -343,11 +350,19 @@ mod tests {
                 dfpid: None,
                 sid: "SID-SECRET".into(),
                 im: Some(ImCredentials { username: "love1".into(), password: "IM-SECRET".into() }),
+                proxy: Some(crate::proxy::Proxy {
+                    enabled: true,
+                    kind: crate::proxy::ProxyKind::Http,
+                    host: "198.51.100.7".into(),
+                    port: 8080,
+                    username: "PROXY-USER".into(),
+                    password: "PROXY-SECRET".into(),
+                }),
             }],
         };
         let file = seal(&bundle, "mat-khau-dai", FAST).unwrap();
         let text = String::from_utf8(file.clone()).unwrap();
-        for secret in ["SID-SECRET", "IM-SECRET", "love1", "d1\""] {
+        for secret in ["SID-SECRET", "IM-SECRET", "love1", "d1\"", "PROXY-USER", "PROXY-SECRET", "198.51.100.7"] {
             assert!(!text.contains(secret), "{secret} readable in the file");
         }
         assert_eq!(open(&file, "mat-khau-dai").unwrap().accounts, bundle.accounts);
@@ -371,7 +386,15 @@ mod tests {
     #[test]
     fn export_then_import_moves_accounts_with_their_secrets_and_skips_known_ones() {
         let (_a, source) = registry();
-        let one = source.add(new("Một", "dev-1", "sid-1")).unwrap();
+        let proxy = crate::proxy::ProxyForm {
+            enabled: false,
+            kind: crate::proxy::ProxyKind::Socks5,
+            host: "10.0.0.9".into(),
+            port: 1080,
+            username: "pu".into(),
+            password: "pp".into(),
+        };
+        let one = source.add(NewAccount { proxy: Some(proxy), ..new("Một", "dev-1", "sid-1") }).unwrap();
         source.add(new("Hai", "dev-2", "sid-2")).unwrap();
         source.save_im_credentials(one.id, "love1", "pw1").unwrap();
         let (accounts, skipped) = collect(&source);
@@ -386,6 +409,8 @@ mod tests {
         let moved = target.list().into_iter().find(|a| a.device_uuid == "dev-1").unwrap();
         assert_eq!(target.with_session(moved.id).unwrap().1, "sid-1");
         assert_eq!(target.im_material(moved.id).unwrap(), ("love1".into(), "pw1".into()));
+        let p = target.proxy(moved.id).unwrap();
+        assert_eq!((p.enabled, p.host.as_str(), p.username.as_str(), p.password.as_str()), (false, "10.0.0.9", "pu", "pp"));
         let kept = target.list().into_iter().find(|a| a.device_uuid == "dev-2").unwrap();
         assert_eq!((kept.label.as_str(), target.with_session(kept.id).unwrap().1.as_str()), ("Đã có", "sid-x"));
         assert_ne!(moved.id, one.id, "a new local id");
@@ -403,6 +428,7 @@ mod tests {
             dfpid: None,
             sid: String::new(),
             im: None,
+            proxy: None,
         };
         let report = restore(&target, vec![bad]);
         assert_eq!((report.added.len(), report.failed.len()), (0, 1));

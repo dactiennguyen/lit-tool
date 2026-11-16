@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { api, type Account, type DeviceSetup } from "@/lib/api";
 import { useAddAccount, useUpdateAccount } from "@/lib/queries";
 import { validateAccountForm, type AccountFormErrors, type AccountFormValues } from "@/lib/validation";
+import { ProxyFields } from "./proxy-fields";
+import { proxyForm, proxyIncomplete, proxyPatch, testsProxy } from "./proxy-form";
 
 const DEFAULT_VERSION = "7.77.0";
 
@@ -42,6 +44,8 @@ export function AccountFormDialog({
   const [draftDevice, setDevice] = useState<DeviceSetup | null>(null);
   const device = draftDevice ?? account?.device ?? null;
   const [generating, setGenerating] = useState(false);
+  const [proxy, setProxy] = useState(() => proxyForm(account?.proxy));
+  const testing = testsProxy(proxy, account?.proxy);
   const add = useAddAccount();
   const update = useUpdateAccount();
   const navigate = useNavigate();
@@ -54,7 +58,7 @@ export function AccountFormDialog({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (pending) return;
+    if (pending || proxyIncomplete(proxy)) return;
     const found = validateAccountForm({ ...values, dfpid: deviceEnabled ? values.dfpid : "" }, { sidRequired: !isEdit, automaticDevice: !isEdit && deviceEnabled });
     if (deviceEnabled && device && values.deviceUuid.trim() && device.deviceUuid !== values.deviceUuid.trim()) found.dfpid = "Làm mới DFPID để JSON khớp UUID đã nhập";
     if (deviceEnabled && device && device.version !== values.version.trim()) found.version = "Làm mới DFPID sau khi đổi version";
@@ -77,6 +81,7 @@ export function AccountFormDialog({
             ...(values.deviceUuid !== account.deviceUuid ? { deviceUuid: values.deviceUuid } : {}),
             ...(sid ? { sid } : {}),
             ...devicePatch,
+            ...proxyPatch(proxy, account.proxy),
           },
         });
         toast.success("Đã lưu thay đổi");
@@ -88,6 +93,7 @@ export function AccountFormDialog({
           deviceEnabled,
           sid,
           ...(deviceEnabled ? { dfpid, ...(draftDevice ? { device: draftDevice } : {}) } : {}),
+          ...(proxy.enabled || proxy.host.trim() ? { proxy } : {}),
         });
         void navigate({ to: "/account/$accountId", params: { accountId: created.id } });
         toast.success(`Đã thêm ${created.label}`);
@@ -207,6 +213,8 @@ export function AccountFormDialog({
               )}
             </Field>
 
+            <ProxyFields value={proxy} onChange={setProxy} saved={account?.proxy} accountId={account?.id} disabled={pending} />
+
             <fieldset className="grid gap-3 rounded-lg border p-3">
               <legend className="px-1 text-xs text-muted-foreground">Thiết bị</legend>
               <div className="flex items-center justify-between gap-3">
@@ -261,9 +269,9 @@ export function AccountFormDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
               Huỷ
             </Button>
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending || proxyIncomplete(proxy)}>
               {pending && <Loader2Icon className="animate-spin" aria-hidden />}
-              {isEdit ? "Lưu" : "Thêm account"}
+              {pending && testing ? "Đang kiểm tra proxy…" : testing ? "Kiểm tra proxy và lưu" : isEdit ? "Lưu" : "Thêm account"}
             </Button>
           </DialogFooter>
         </form>

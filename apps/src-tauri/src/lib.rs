@@ -10,6 +10,7 @@ mod listen;
 mod lit;
 mod lit_types;
 mod msync;
+mod proxy;
 mod settings;
 mod siua;
 mod store;
@@ -50,6 +51,7 @@ pub fn run() {
             accounts::accounts_add,
             accounts::accounts_update,
             accounts::accounts_remove,
+            accounts::proxy_test,
             transfer::accounts_export,
             transfer::accounts_import,
             chat::hx_probe_servers,

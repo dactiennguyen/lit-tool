@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use crate::db::{self, Db, DbError, put_secret};
+use crate::proxy::{Proxy, ProxyForm, ProxyView};
 use crate::store::now_ms;
 
 const KEYRING_SERVICE: &str = "sky-manager.session";
@@ -68,6 +69,9 @@ pub struct Account {
     /// first chat connection and kept. Not sent to the webview.
     #[serde(skip)]
     pub im_client: Option<Uuid>,
+    /// The saved proxy, on or off, without its password (proxy.rs).
+    #[serde(default, skip_deserializing)]
+    pub proxy: Option<ProxyView>,
 }
 
 impl Account {
@@ -119,6 +123,9 @@ pub struct NewAccount {
     #[serde(default)]
     pub device_enabled: bool,
     pub sid: String,
+    /// Tested first by the command when it is on (`accounts_add`).
+    #[serde(default)]
+    pub proxy: Option<ProxyForm>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -137,11 +144,14 @@ pub struct AccountPatch {
     pub dfpid: Option<Option<String>>,
     pub sid: Option<String>,
     pub device: Option<crate::dfpid::DeviceSetup>,
+    /// absent = keep, `null` = remove, a form = set (tested first by `accounts_update` when on).
+    #[serde(default, deserialize_with = "present")]
+    pub proxy: Option<Option<ProxyForm>>,
 }
 
 /// Distinguishes a field sent as `null` (Some(None)) from a missing one (None).
-fn present<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Option<Option<String>>, D::Error> {
-    Option::<String>::deserialize(d).map(Some)
+fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 // ---------- validation (mirrors scripts/src/lit/profile.ts) ----------
@@ -271,6 +281,8 @@ pub struct AccountRegistry {
     sessions: Mutex<HashMap<Uuid, String>>,
     /// Same for IM passwords.
     im_passwords: Mutex<HashMap<Uuid, String>>,
+    /// Every saved proxy with its password, read once at startup.
+    proxies: Mutex<HashMap<Uuid, Proxy>>,
 }
 
 fn sid_key(id: Uuid) -> String {
@@ -279,8 +291,18 @@ fn sid_key(id: Uuid) -> String {
 
 impl AccountRegistry {
     pub fn open(db: Arc<Db>) -> Result<Self> {
-        let accounts = db.read(db::load_accounts)?;
-        Ok(Self { db, accounts: Mutex::new(accounts), sessions: Mutex::default(), im_passwords: Mutex::default() })
+        let mut accounts = db.read(db::load_accounts)?;
+        let proxies = db.read(db::load_proxies)?;
+        for a in &mut accounts {
+            a.proxy = proxies.get(&a.id).map(Proxy::view);
+        }
+        Ok(Self {
+            db,
+            accounts: Mutex::new(accounts),
+            sessions: Mutex::default(),
+            im_passwords: Mutex::default(),
+            proxies: Mutex::new(proxies),
+        })
     }
 
     /// Where an unreadable database was moved on startup, if that happened.
@@ -349,6 +371,7 @@ impl AccountRegistry {
         let siua = clean_device_token(input.siua, "SIUA")?;
         let dfpid = clean_device_token(input.dfpid, "DFPID")?;
         let sid = clean_sid(&input.sid)?;
+        let proxy = input.proxy.map(|f| f.resolve(None)).transpose().map_err(AccountError::Invalid)?.flatten();
         if let Some(device) = &input.device {
             device.validate(true).map_err(AccountError::Invalid)?;
             if (input.device_enabled && (device.version != version || device.device_uuid != device_uuid)) || Some(&device.dfp_id) != dfpid.as_ref() {
@@ -375,15 +398,22 @@ impl AccountRegistry {
             session_saved_at: Some(now),
             im: None,
             im_client: None,
+            proxy: proxy.as_ref().map(Proxy::view),
         };
-        // Account and sid together, or neither.
+        // Account, sid and proxy together, or none of them.
         self.db.write(|tx| -> Result<()> {
             db::insert_account(tx, &account)?;
             put_secret(tx, &sid_key(account.id), Some(&sid))?;
+            if proxy.is_some() {
+                db::put_proxy(tx, account.id, proxy.as_ref())?;
+            }
             Ok(())
         })?;
         accounts.push(account.clone());
         self.sessions.lock().unwrap().insert(account.id, sid);
+        if let Some(proxy) = proxy {
+            self.proxies.lock().unwrap().insert(account.id, proxy);
+        }
         Ok(account)
     }
 
@@ -429,12 +459,21 @@ impl AccountRegistry {
         if accounts.iter().any(|a| a.id != id && a.device_uuid == account.device_uuid) {
             return Err(AccountError::Duplicate);
         }
-        if let Some(device) = &account.device {
-            if (account.device_enabled && (device.version != account.version || device.device_uuid != account.device_uuid)) || Some(&device.dfp_id) != account.dfpid.as_ref() {
-                return Err(AccountError::Invalid("Hãy làm mới DFPID để JSON khớp UUID và version của account".into()));
-            }
+        if let Some(device) = &account.device
+            && ((account.device_enabled && (device.version != account.version || device.device_uuid != account.device_uuid))
+                || Some(&device.dfp_id) != account.dfpid.as_ref())
+        {
+            return Err(AccountError::Invalid("Hãy làm mới DFPID để JSON khớp UUID và version của account".into()));
         }
         let sid = patch.sid.as_deref().map(clean_sid).transpose()?;
+        let saved_proxy = self.proxy(id);
+        let proxy = match patch.proxy {
+            None => saved_proxy.clone(),
+            Some(None) => None,
+            Some(Some(form)) => form.resolve(saved_proxy.as_ref()).map_err(AccountError::Invalid)?,
+        };
+        let proxy_changed = proxy != saved_proxy;
+        account.proxy = proxy.as_ref().map(Proxy::view);
         if sid.is_some() || account.device_uuid != accounts[index].device_uuid
             || account.device_enabled != accounts[index].device_enabled {
             account.session_saved_at = Some(now_ms().max(accounts[index].session_saved_at.unwrap_or(0).saturating_add(1)));
@@ -445,13 +484,33 @@ impl AccountRegistry {
             if let Some(sid) = &sid {
                 put_secret(tx, &sid_key(id), Some(sid))?;
             }
+            if proxy_changed {
+                db::put_proxy(tx, id, proxy.as_ref())?;
+            }
             Ok(())
         })?;
         accounts[index] = account.clone();
         if let Some(sid) = sid {
             self.sessions.lock().unwrap().insert(id, sid);
         }
+        if proxy_changed {
+            let mut proxies = self.proxies.lock().unwrap();
+            match proxy {
+                Some(p) => proxies.insert(id, p),
+                None => proxies.remove(&id),
+            };
+        }
         Ok(account)
+    }
+
+    /// The account's saved proxy, on or off, with its password (backend only).
+    pub fn proxy(&self, id: Uuid) -> Option<Proxy> {
+        self.proxies.lock().unwrap().get(&id).cloned()
+    }
+
+    /// The proxy the account's connections go through: its saved one while it is turned on.
+    pub fn active_proxy(&self, id: Uuid) -> Option<Proxy> {
+        self.proxy(id).filter(|p| p.enabled)
     }
 
     /// Account plus its sid, for signing requests inside the backend only.
@@ -542,7 +601,7 @@ impl AccountRegistry {
             if !db::delete_account(tx, id)? {
                 return Err(AccountError::NotFound);
             }
-            for key in [sid_key(id), im_key(id), legacy_hx_key(id)] {
+            for key in [sid_key(id), im_key(id), legacy_hx_key(id), db::proxy_key(id)] {
                 put_secret(tx, &key, None)?;
             }
             Ok(())
@@ -550,6 +609,7 @@ impl AccountRegistry {
         accounts.retain(|a| a.id != id);
         self.sessions.lock().unwrap().remove(&id);
         self.im_passwords.lock().unwrap().remove(&id);
+        self.proxies.lock().unwrap().remove(&id);
         Ok(())
     }
 }
@@ -563,19 +623,69 @@ pub fn accounts_list(registry: State<'_>) -> Vec<Account> {
     registry.list()
 }
 
+/// Where the proxy checks reach: the Litmatch API server of the settings.
+fn check_target(app: &tauri::AppHandle) -> Result<(String, u16)> {
+    use tauri::Manager;
+    let base = app.state::<crate::settings::SettingsStore>().get().api_base_url;
+    let url = url::Url::parse(&base).map_err(|_| AccountError::Invalid("API base URL trong Cài đặt không hợp lệ".into()))?;
+    match (url.host_str(), url.port_or_known_default()) {
+        (Some(host), Some(port)) => Ok((host.trim_start_matches('[').trim_end_matches(']').to_owned(), port)),
+        _ => Err(AccountError::Invalid("API base URL trong Cài đặt không hợp lệ".into())),
+    }
+}
+
+/// The test before saving: a proxy turned on that is new, was off, or changed
+/// must reach the Litmatch server; nothing is saved when it does not.
+async fn check_before_saving(app: &tauri::AppHandle, old: Option<&Proxy>, new: Option<&Proxy>) -> Result<()> {
+    let Some(proxy) = new.filter(|_| crate::proxy::needs_check(old, new)) else { return Ok(()) };
+    let (host, port) = check_target(app)?;
+    crate::proxy::check(proxy, &host, port)
+        .await
+        .map(drop)
+        .map_err(|e| AccountError::Invalid(format!("Chưa lưu: kiểm tra proxy không qua. {e}")))
+}
+
 #[tauri::command]
-pub async fn accounts_add(registry: State<'_>, input: NewAccount) -> Result<Account> {
+pub async fn accounts_add(app: tauri::AppHandle, registry: State<'_>, input: NewAccount) -> Result<Account> {
+    let proxy = input.proxy.clone().map(|f| f.resolve(None)).transpose().map_err(AccountError::Invalid)?.flatten();
+    check_before_saving(&app, None, proxy.as_ref()).await?;
     registry.add_prepared(input, |version, sid, uuid| async move {
         crate::dfpid::generate_new(version, &sid, uuid.as_deref()).await
     }).await
 }
 
-#[tauri::command(async)]
-pub fn accounts_update(app: tauri::AppHandle, registry: State<'_>, id: Uuid, patch: AccountPatch) -> Result<Account> {
+/// Saves the change; a proxy turned on or changed is tested first. A live chat
+/// connection reconnects through the new proxy.
+#[tauri::command]
+pub async fn accounts_update(app: tauri::AppHandle, registry: State<'_>, id: Uuid, patch: AccountPatch) -> Result<Account> {
     let before = registry.list().into_iter().find(|a| a.id == id).ok_or(AccountError::NotFound)?;
+    let old_proxy = registry.proxy(id);
+    if let Some(Some(form)) = &patch.proxy {
+        let new = form.clone().resolve(old_proxy.as_ref()).map_err(AccountError::Invalid)?;
+        check_before_saving(&app, old_proxy.as_ref(), new.as_ref()).await?;
+    }
     let account = registry.update(id, patch)?;
-    if before.session_saved_at != account.session_saved_at { crate::listen::stop(&app, id); }
+    if before.session_saved_at != account.session_saved_at {
+        crate::listen::stop(&app, id);
+    } else if registry.active_proxy(id) != old_proxy.filter(|p| p.enabled) {
+        crate::listen::restart(&app, id);
+    }
     Ok(account)
+}
+
+/// "Kiểm tra" next to the proxy of the form: reaches the Litmatch server
+/// through it, on or off, and returns the time it took in ms. With `id`, an
+/// empty password is the one saved for that account.
+#[tauri::command]
+pub async fn proxy_test(app: tauri::AppHandle, registry: State<'_>, proxy: ProxyForm, id: Option<Uuid>) -> Result<u64> {
+    let saved = id.and_then(|id| registry.proxy(id));
+    let proxy = proxy
+        .resolve(saved.as_ref())
+        .map_err(AccountError::Invalid)?
+        .ok_or_else(|| AccountError::Invalid("Nhập địa chỉ proxy trước".into()))?;
+    let (host, port) = check_target(&app)?;
+    let took = crate::proxy::check(&proxy, &host, port).await.map_err(AccountError::Invalid)?;
+    Ok(took.as_millis() as u64)
 }
 
 #[tauri::command]
@@ -605,6 +715,7 @@ mod tests {
             device: None,
             device_enabled: false,
             sid: "secret-sid".into(),
+            proxy: None,
         }
     }
 
@@ -827,6 +938,7 @@ mod tests {
                 dfpid: Some(None),
                 device: None,
                 sid: Some("new-sid".into()),
+                proxy: None,
             })
             .unwrap();
         assert_eq!(updated.label, "Renamed");
@@ -836,7 +948,7 @@ mod tests {
         assert_eq!(reg.with_session(acc.id).unwrap().1, "new-sid");
         assert_eq!(secret(&db, &acc.id.to_string()).as_deref(), Some("new-sid"));
 
-        let bad = AccountPatch { device_enabled: None, device_uuid: None, label: Some("".into()), user_id: None, version: None, siua: None, dfpid: None, sid: None, device: None };
+        let bad = AccountPatch { device_enabled: None, device_uuid: None, label: Some("".into()), user_id: None, version: None, siua: None, dfpid: None, sid: None, device: None, proxy: None };
         assert!(reg.update(acc.id, bad).is_err());
         assert_eq!(reg.list()[0].label, "Renamed");
 
@@ -900,6 +1012,52 @@ mod tests {
 
         let (fresh, _) = registry(dir.path()); // new run: cache empty, reads the database
         assert_eq!(fresh.with_session(acc.id).unwrap().1, "changed behind our back");
+    }
+
+    fn proxy_form(enabled: bool, username: &str, password: &str) -> ProxyForm {
+        ProxyForm {
+            enabled,
+            kind: crate::proxy::ProxyKind::Http,
+            host: "198.51.100.7".into(),
+            port: 8080,
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
+    fn proxy_patch(proxy: Option<ProxyForm>) -> AccountPatch {
+        serde_json::from_value::<AccountPatch>(serde_json::json!({})).map(|p| AccountPatch { proxy: Some(proxy), ..p }).unwrap()
+    }
+
+    #[test]
+    fn the_proxy_is_saved_with_its_password_apart_and_never_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let (reg, db) = registry(dir.path());
+        let acc = reg.add(NewAccount { proxy: Some(proxy_form(true, "bot", "s3cret")), ..input("dev-1") }).unwrap();
+        let view = acc.proxy.clone().unwrap();
+        assert_eq!((view.label.as_str(), view.has_password), ("http 198.51.100.7:8080", true));
+        let listed = serde_json::to_string(&reg.list()).unwrap();
+        assert!(!listed.contains("s3cret") && listed.contains("198.51.100.7"), "{listed}");
+        let column: String = db.read(|c| c.query_row("SELECT proxy FROM accounts", [], |r| r.get(0))).unwrap();
+        assert!(!column.contains("s3cret"), "{column}");
+        assert_eq!(secret(&db, &db::proxy_key(acc.id)).as_deref(), Some("s3cret"));
+        assert_eq!(reg.active_proxy(acc.id).unwrap().password, "s3cret");
+
+        // Off, same username, no password typed: kept, but not used.
+        reg.update(acc.id, proxy_patch(Some(proxy_form(false, "bot", "")))).unwrap();
+        assert!(reg.active_proxy(acc.id).is_none());
+        assert_eq!(reg.proxy(acc.id).unwrap().password, "s3cret");
+        // A patch without `proxy` keeps it; a new run reads it back.
+        reg.update(acc.id, serde_json::from_value(serde_json::json!({ "label": "B" })).unwrap()).unwrap();
+        let again = AccountRegistry::open(db.clone()).unwrap();
+        assert_eq!(again.proxy(acc.id), reg.proxy(acc.id));
+        assert_eq!(again.list()[0].proxy, reg.list()[0].proxy);
+
+        // `null` removes it with its password.
+        let cleared = reg.update(acc.id, proxy_patch(None)).unwrap();
+        assert!(cleared.proxy.is_none() && reg.proxy(acc.id).is_none());
+        assert_eq!(secret(&db, &db::proxy_key(acc.id)), None);
+        assert!(reg.add(NewAccount { proxy: Some(ProxyForm { port: 0, ..proxy_form(true, "", "") }), ..input("dev-2") }).is_err());
     }
 
     #[test]

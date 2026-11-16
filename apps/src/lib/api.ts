@@ -24,6 +24,35 @@ export interface Account {
   sessionSavedAt: number | null;
   /** IM identity saved from the profile at login; the password stays in the keychain. */
   im: ImIdentity | null;
+  /** The saved proxy, on or off; its password stays in the backend. */
+  proxy?: ProxyView | null;
+}
+
+export type ProxyKind = "socks5" | "http";
+
+/** proxy.rs `ProxyView`: the account's proxy without its password. */
+export interface ProxyView {
+  enabled: boolean;
+  kind: ProxyKind;
+  host: string;
+  port: number;
+  username: string;
+  hasPassword: boolean;
+  /** "socks5 1.2.3.4:1080". */
+  label: string;
+}
+
+/**
+ * proxy.rs `ProxyForm`, the proxy part of the add and edit form: off with no host saves no proxy. An empty password
+ * with the saved username keeps the saved password.
+ */
+export interface ProxyForm {
+  enabled: boolean;
+  kind: ProxyKind;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
 }
 
 export interface ImIdentity {
@@ -127,6 +156,8 @@ export interface NewAccount {
   sid: string;
   device?: DeviceSetup;
   deviceEnabled?: boolean;
+  /** Tested first when it is on: nothing is added when it does not reach the server. */
+  proxy?: ProxyForm;
 }
 
 export interface AccountPatch {
@@ -137,6 +168,8 @@ export interface AccountPatch {
   sid?: string;
   device?: DeviceSetup;
   deviceEnabled?: boolean;
+  /** Absent keeps it, null removes it; tested first when it is on and new, was off, or changed. */
+  proxy?: ProxyForm | null;
 }
 
 export interface DeviceSetup {
@@ -214,6 +247,9 @@ export const api = {
     update: (id: string, patch: AccountPatch) => call<Account>("accounts_update", { id, patch }),
     remove: (id: string) => call<void>("accounts_remove", { id }),
     recoveredBackup: () => call<string | null>("accounts_recovered_backup"),
+    /** Reaches the Litmatch server through the proxy (on or off): the time it took in ms. With `id`, an empty
+     *  password is the one saved for that account. */
+    testProxy: (proxy: ProxyForm, id?: string) => call<number>("proxy_test", { proxy, id: id ?? null }),
     /** Writes every account with its sid and IM login to `path`, encrypted with `password`. */
     export: (path: string, password: string) => call<ExportReport>("accounts_export", { path, password }),
     /** Adds the accounts of the file at `path` whose device UUID is new here. */

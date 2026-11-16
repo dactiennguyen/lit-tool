@@ -9,6 +9,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
+  ShieldIcon,
   Trash2Icon,
   UploadIcon,
   UsersIcon,
@@ -27,6 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -185,6 +187,12 @@ function AccountTable({
                 <div className="flex items-center gap-2.5">
                   <AccountAvatar label={a.label} />
                   <span className="truncate font-medium">{a.label}</span>
+                  {a.proxy?.enabled && (
+                    <Badge variant="outline" className="text-success" title={`Kết nối qua proxy ${a.proxy.label}`}>
+                      <ShieldIcon aria-hidden />
+                      Proxy
+                    </Badge>
+                  )}
                 </div>
               </td>
               <td className="px-3 py-2.5 font-mono text-xs">

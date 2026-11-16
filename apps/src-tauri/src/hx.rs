@@ -363,7 +363,7 @@ pub async fn discover(app_key: &str) -> Result<ImServers> {
     }
     let mut url = url::Url::parse(DISCOVERY_URL).expect("valid constant");
     url.query_pairs_mut().append_pair("app_key", app_key).append_pair("_v", &crate::store::now_ms().to_string());
-    let client = crate::lit::http_client().map_err(|e| HxError::Discovery(e.to_string()))?;
+    let client = crate::lit::http_client(None).map_err(|e| HxError::Discovery(e.to_string()))?;
     let trace = Trace { account_id: None, service: "Easemob: danh sách server" };
     let response = fetch(client.get(url), MAX_FRAME_BYTES, trace, HxError::Discovery).await?;
     if !(200..300).contains(&response.status) {
@@ -452,7 +452,7 @@ pub async fn request_user_token(
         return Err(HxError::Invalid("Cần username và hxPwd để lấy token".into()));
     }
     let origin = easemob_origin(rest_base)?;
-    let client = crate::lit::http_client().map_err(|e| HxError::Token(e.to_string()))?;
+    let client = crate::lit::http_client(Some(account_id)).map_err(|e| HxError::Token(e.to_string()))?;
     let request = client
         .post(format!("{origin}/{org}/{app}/token"))
         .header("accept", "application/json")
@@ -829,7 +829,7 @@ pub async fn fetch_history(
     if token.is_empty() {
         return Err(HxError::Invalid("Thiếu access token Hyphenate".into()));
     }
-    let client = crate::lit::http_client().map_err(|e| HxError::History(e.to_string()))?;
+    let client = crate::lit::http_client(Some(account_id)).map_err(|e| HxError::History(e.to_string()))?;
     let request = client
         .post(url)
         .bearer_auth(token)

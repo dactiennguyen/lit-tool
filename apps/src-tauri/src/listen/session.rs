@@ -19,6 +19,7 @@ use tokio::time::{Instant, sleep_until, timeout, timeout_at};
 use crate::hx::{self, ChatMessage, HxError, SendAck, TextMessage};
 use crate::inspect;
 use crate::msync::{self, Frame, SyncResponse};
+use crate::proxy::{self, ConnectError, Proxy};
 
 /// Queues waiting to be pulled.
 const MAX_QUEUES: usize = 1000;
@@ -250,6 +251,8 @@ pub(crate) struct Link<'a> {
     pub timing: Timing,
     /// Pull the queues the server names (a live connection); false for a one-off send.
     pub sync: bool,
+    /// The account's proxy, when it has one turned on.
+    pub proxy: Option<&'a Proxy>,
 }
 
 /// Logs in and runs until the connection ends, or until `outbox` closes with
@@ -260,15 +263,17 @@ pub(crate) async fn run_session(
     seen: &mut Seen,
     on_event: impl FnMut(Event),
 ) -> End {
-    let stream = match timeout(link.timing.connect, TcpStream::connect((link.host, link.port))).await {
-        Ok(Ok(stream)) => stream,
-        Ok(Err(e)) => return io(e),
-        Err(_) => return End::Retry(HxError::Timeout),
+    // Through the account's proxy when it has one turned on; it may pass on the server's first bytes with its reply.
+    let (stream, early) = match proxy::connect(link.host, link.port, link.proxy, link.timing.connect).await {
+        Ok(connected) => connected,
+        Err(ConnectError::Io(e)) => return io(e),
+        Err(ConnectError::Timeout(m)) if link.proxy.is_some() => return tcp(m),
+        Err(ConnectError::Timeout(_)) => return End::Retry(HxError::Timeout),
+        Err(ConnectError::Proxy(m)) => return tcp(m),
     };
-    let _ = stream.set_nodelay(true);
     let mut conn = Conn {
         stream,
-        buf: Vec::new(),
+        buf: early,
         me: link.me,
         timing: link.timing,
         sync: link.sync,
@@ -652,7 +657,7 @@ mod tests {
     const LOGIN: &[u8] = b"\x00\x00\x00\x02\x40\x03";
 
     fn link(port: u16, sync: bool) -> Link<'static> {
-        Link { host: "127.0.0.1", port, login: LOGIN, me: ME, timing: FAST, sync }
+        Link { host: "127.0.0.1", port, login: LOGIN, me: ME, timing: FAST, sync, proxy: None }
     }
 
     /// Bytes field `n` of a protobuf message.
