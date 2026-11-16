@@ -74,7 +74,8 @@ pub struct AppSettings {
     pub api_base_url: String,
     /// Easemob app key (org#app) of the chat server.
     pub im_app_key: String,
-    /// Connect to the chat server right after an account logs in.
+    /// Connect to the chat server right after an account logs in (on by default;
+    /// turn off in Settings if a phone app sharing the account must stay signed in).
     pub auto_connect_tcp: bool,
     /// What the window's close button does.
     pub on_close: OnClose,
@@ -87,7 +88,7 @@ impl Default for AppSettings {
         Self {
             api_base_url: DEFAULT_API_BASE_URL.to_owned(),
             im_app_key: hx::DEFAULT_APP_KEY.to_owned(),
-            auto_connect_tcp: false,
+            auto_connect_tcp: true,
             on_close: OnClose::Ask,
             im_servers: None,
         }
@@ -284,7 +285,7 @@ mod tests {
         let store = open(dir.path());
         let s = store.get();
         assert_eq!((s.api_base_url.as_str(), s.im_app_key.as_str()), (DEFAULT_API_BASE_URL, hx::DEFAULT_APP_KEY));
-        assert!(!s.auto_connect_tcp && s.im_servers.is_none());
+        assert!(s.auto_connect_tcp && s.im_servers.is_none());
 
         let patch = SettingsPatch { api_base_url: Some("http://localhost:3000/".into()), im_app_key: Some(" org#app ".into()), ..Default::default() };
         store.update(patch).unwrap();
