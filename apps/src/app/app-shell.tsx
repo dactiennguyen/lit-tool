@@ -120,7 +120,7 @@ function AccountList({ collapsed }: { collapsed: boolean }) {
         </h2>
         <Tooltip>
           <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" render={<Link to="/accounts" />} aria-label="Thêm account" />}
+            render={<Button variant="ghost" size="icon-sm" nativeButton={false} render={<Link to="/accounts" />} aria-label="Thêm account" />}
           >
             <PlusIcon aria-hidden />
           </TooltipTrigger>

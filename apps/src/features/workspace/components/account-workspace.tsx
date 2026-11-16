@@ -7,6 +7,16 @@ import { EmptyState } from "@/components/empty-state";
 import { SessionText } from "@/components/session-status";
 import { ConnectTcpButton } from "@/components/connect-tcp-button";
 import { TcpText } from "@/components/tcp-status";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountFormDialog } from "@/features/accounts/components/account-form-dialog";
@@ -76,7 +86,7 @@ export function AccountWorkspace() {
         icon={UserXIcon}
         title="Không tìm thấy account"
         description="Account có thể đã bị xoá."
-        action={<Button render={<Link to="/accounts" />}>Quản lý account</Button>}
+        action={<Button nativeButton={false} render={<Link to="/accounts" />}>Quản lý account</Button>}
       />
     );
   }
@@ -91,6 +101,7 @@ function Workspace({ account }: { account: Account }) {
   const loggedIn = session.state === "in";
   const tcp = useTcpStatus(account.id);
   const [logOpen, setLogOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   return (
     <AccountContext.Provider value={account}>
@@ -98,7 +109,7 @@ function Workspace({ account }: { account: Account }) {
         <div className="flex h-14 items-center gap-3 px-5">
           <AccountAvatar label={account.label} />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-semibold">
+            <h1 className="truncate text-base font-semibold tracking-tight">
               {account.label}
               {loggedIn && me.data?.nickname && (
                 <span className="font-normal text-muted-foreground"> · {me.data.nickname}</span>
@@ -107,22 +118,44 @@ function Workspace({ account }: { account: Account }) {
             <div className="flex min-w-0 items-center gap-3 text-xs">
               <SessionText session={session} />
               {loggedIn && <TcpText status={tcp} />}
-              {loggedIn && <ConnectTcpButton account={account} status={tcp} />}
             </div>
           </div>
           {loggedIn && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              <ConnectTcpButton account={account} status={tcp} size="sm" />
               <Button variant="ghost" size="sm" title="Log TCP và HTTP của account" onClick={() => setLogOpen(true)}>
                 <ScrollTextIcon aria-hidden />
                 Log
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => logout(account.id)}>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmLogout(true)}>
                 <LogOutIcon aria-hidden />
                 Đăng xuất
               </Button>
             </div>
           )}
           <LogDialog account={account} open={logOpen} onOpenChange={setLogOpen} />
+          <AlertDialog open={confirmLogout} onOpenChange={setConfirmLogout}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Đăng xuất {account.label}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Kết nối chat sẽ đóng và dữ liệu đã tải của account trong app bị xoá. Session vẫn được lưu, bấm Đăng nhập
+                  là dùng tiếp.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Huỷ</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmLogout(false);
+                    logout(account.id);
+                  }}
+                >
+                  Đăng xuất
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
         <nav aria-label="Mục của account" className="flex gap-1 px-4">
           {TABS.map((t) => (

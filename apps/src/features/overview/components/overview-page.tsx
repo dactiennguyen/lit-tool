@@ -109,7 +109,7 @@ export function OverviewPage() {
         <EmptyState
           icon={UsersIcon}
           title="Chưa có account nào"
-          action={<Button render={<Link to="/accounts" />}>Thêm account</Button>}
+          action={<Button nativeButton={false} render={<Link to="/accounts" />}>Thêm account</Button>}
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -195,6 +195,7 @@ function OverviewTable({ rows }: { rows: { account: Account; summary: AccountSum
                   <Button
                     variant="ghost"
                     size="sm"
+                    nativeButton={false}
                     render={<Link to="/account/$accountId" params={{ accountId: a.id }} />}
                     aria-label={`Mở ${a.label}`}
                   >

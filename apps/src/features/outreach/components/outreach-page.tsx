@@ -145,7 +145,7 @@ export function OutreachPage() {
                 {loggingIn ? `Đang đăng nhập ${loggingIn.done}/${loggingIn.total}` : `Đăng nhập tất cả (${accounts.length})`}
               </Button>
             ) : (
-              <Button render={<Link to="/accounts" />}>Thêm account</Button>
+              <Button nativeButton={false} render={<Link to="/accounts" />}>Thêm account</Button>
             )
           }
         />

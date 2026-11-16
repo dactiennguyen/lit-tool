@@ -11,7 +11,7 @@ export function HistoryDialog({ open, onOpenChange, rows }: { open: boolean; onO
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Lịch sử gửi</DialogTitle>
-          <DialogDescription>{rows.length} lần gần đây, lưu trên máy này.</DialogDescription>
+          <DialogDescription>{rows.length ? `${rows.length} lần gửi gần nhất, lưu trên máy này.` : "Các lần gửi được lưu trên máy này."}</DialogDescription>
         </DialogHeader>
         {rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Chưa có lịch sử.</p>
