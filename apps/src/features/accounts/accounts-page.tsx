@@ -142,7 +142,7 @@ export function AccountsPage() {
       {transfer.kind === "import" ? (
         <ImportDialog key={transfer.key} open={transfer.open} onOpenChange={setTransferOpen} />
       ) : (
-        <ExportDialog key={transfer.key} open={transfer.open} onOpenChange={setTransferOpen} count={accounts?.length ?? 0} />
+        <ExportDialog key={transfer.key} open={transfer.open} onOpenChange={setTransferOpen} />
       )}
     </>
   );

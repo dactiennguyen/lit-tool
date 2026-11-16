@@ -69,13 +69,14 @@ export type LiveState =
   /** `message` null: stopped by the user. */
   | { state: "stopped"; at: number; message: string | null };
 
-/** `accounts_export`: accounts written to the file, and those left out for lack of a sid. */
+/** `accounts_export_*`: accounts exported, those left out for lack of a sid, and the JSON text (export_text only). */
 export interface ExportReport {
   exported: number;
   skipped: string[];
+  text?: string;
 }
 
-/** `accounts_import`: labels added, skipped (device UUID already here) and failed with the reason. */
+/** `accounts_import_text`: labels added, skipped (device UUID already here) and failed with the reason. */
 export interface ImportReport {
   added: string[];
   skipped: string[];
@@ -256,10 +257,18 @@ export const api = {
     /** Reaches the Litmatch server through the proxy (on or off): the time it took in ms. With `id`, an empty
      *  password is the one saved for that account. */
     testProxy: (proxy: ProxyForm, id?: string) => call<number>("proxy_test", { proxy, id: id ?? null }),
-    /** Writes every account with its sid and IM login to `path`, encrypted with `password`. */
-    export: (path: string, password: string) => call<ExportReport>("accounts_export", { path, password }),
-    /** Adds the accounts of the file at `path` whose device UUID is new here. */
-    import: (path: string, password: string) => call<ImportReport>("accounts_import", { path, password }),
+    /** Every account with its sid, IM login and proxy, as plain JSON text. */
+    exportText: () => call<ExportReport>("accounts_export_text"),
+    /** Writes the same JSON text to `path`. */
+    exportFile: (path: string) => call<ExportReport>("accounts_export_file", { path }),
+    /** The text of a file picked for import. */
+    readFile: (path: string) => call<string>("accounts_read_file", { path }),
+    /**
+     * Adds the accounts of an export text whose device UUID is new here.
+     * `password` only for a password-protected .skyacc file of an earlier build.
+     */
+    importText: (text: string, password?: string) =>
+      call<ImportReport>("accounts_import_text", { text, password: password || null }),
   },
   hx: {
     /**

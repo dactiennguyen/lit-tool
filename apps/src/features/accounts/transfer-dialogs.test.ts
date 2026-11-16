@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { exportPasswordProblem, MIN_FILE_PASSWORD } from "./transfer-dialogs";
+import { isPasswordExport } from "./transfer-dialogs";
 
-describe("export password", () => {
-  it("needs the minimum length and a matching confirmation", () => {
-    expect(MIN_FILE_PASSWORD).toBe(8);
-    expect(exportPasswordProblem("ngan", "ngan")).toMatch(/ít nhất 8/);
-    expect(exportPasswordProblem("mat-khau-dai", "mat-khau-dal")).toBe("Hai mật khẩu chưa khớp");
-    expect(exportPasswordProblem("mật khẩu ✓", "mật khẩu ✓")).toBeNull();
+describe("isPasswordExport", () => {
+  it("spots the password-protected files of earlier builds only", () => {
+    const old = JSON.stringify({ format: "sky-manager-accounts", version: 1, kdf: "pbkdf2-sha256", data: "abc" });
+    expect(isPasswordExport(old)).toBe(true);
+    expect(isPasswordExport(`﻿  ${old}\n`)).toBe(true);
+    expect(isPasswordExport(JSON.stringify({ format: "sky-manager-accounts", version: 2, accounts: [] }))).toBe(false);
+    expect(isPasswordExport("[]")).toBe(false);
+    expect(isPasswordExport("")).toBe(false);
+    expect(isPasswordExport("{not json")).toBe(false);
   });
 });

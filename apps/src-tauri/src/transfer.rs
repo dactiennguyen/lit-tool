@@ -1,17 +1,13 @@
-//! Account export and import: a file with every account, its sid and its IM
-//! credentials, encrypted with a password the user chooses, to move the
-//! accounts to another machine or keep a backup.
+//! Account export and import as plain JSON text: every account with its sid,
+//! its IM credentials and its proxy, to copy to another machine, paste, or
+//! keep in a file. Anyone holding the text can use the accounts.
 //!
-//! File (JSON): `format`, `version`, `kdf` (PBKDF2-HMAC-SHA256 with `iterations`
-//! and a random 16-byte `salt`), a random 12-byte `nonce`, and `data`: the
-//! AES-256-GCM ciphertext of the account list, the header bound as associated
-//! data. Without the password nothing in it can be read; a wrong password or
-//! a changed byte fails the tag check.
-//!
-//! Secrets never pass through the webview: it only gives the file path and the
-//! password. Import adds accounts whose device UUID is new and skips the rest.
-//! The proxy goes with its password; an imported one is not tested. The device
-//! setup (JSON, DFPID refresh) is not exported.
+//! Text (JSON): `format`, `version` (2), `exportedAt` and `accounts`. Import
+//! also takes a bare array of accounts, and still reads the password-protected
+//! files of version 1 (PBKDF2-HMAC-SHA256 + AES-256-GCM, header bound as
+//! associated data). It adds accounts whose device UUID is new and skips the
+//! rest. An imported proxy is not tested. The device setup (JSON, DFPID
+//! refresh) is not exported.
 
 use std::path::Path;
 
@@ -25,14 +21,14 @@ use sha2::Sha256;
 use crate::accounts::{AccountRegistry, NewAccount};
 
 const FORMAT: &str = "sky-manager-accounts";
-const VERSION: u32 = 1;
+/// Plain JSON text.
+const VERSION: u32 = 2;
+/// Password-protected files of earlier builds (read only).
+const ENCRYPTED_VERSION: u32 = 1;
 const KDF: &str = "pbkdf2-sha256";
-/// PBKDF2 rounds for new files (OWASP 2023 figure for HMAC-SHA256).
-const ITERATIONS: u32 = 600_000;
 /// Rounds a file may ask for: enough to refuse a file built to stall the app.
 const MAX_ITERATIONS: u32 = 10_000_000;
-const MIN_PASSWORD: usize = 8;
-/// Largest file read on import.
+/// Largest file or text read on import.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +37,8 @@ pub enum TransferError {
     Invalid(String),
     #[error("Sai mật khẩu hoặc file đã bị sửa")]
     Decrypt,
+    #[error("File này có mật khẩu (export từ bản cũ): nhập mật khẩu để mở")]
+    NeedsPassword,
     #[error("Không đọc/ghi được file: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -57,7 +55,7 @@ fn invalid(m: &str) -> TransferError {
     TransferError::Invalid(m.into())
 }
 
-/// The file as written.
+/// A password-protected file of version 1.
 #[derive(Debug, Serialize, Deserialize)]
 struct Envelope {
     format: String,
@@ -69,10 +67,15 @@ struct Envelope {
     data: String,
 }
 
-/// The decrypted content.
+/// The content: the plain text of version 2, or what a version 1 file decrypts to.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Bundle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    version: Option<u32>,
+    #[serde(default)]
     exported_at: u64,
     accounts: Vec<Exported>,
 }
@@ -106,6 +109,9 @@ pub struct ExportReport {
     pub exported: usize,
     /// Labels of accounts left out because they have no saved sid.
     pub skipped: Vec<String>,
+    /// The JSON text (only from `accounts_export_text`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// Result of an import (`ImportReport` in src/lib/api.ts).
@@ -119,13 +125,6 @@ pub struct ImportReport {
     pub failed: Vec<(String, String)>,
 }
 
-fn check_password(password: &str) -> Result<()> {
-    if password.chars().count() < MIN_PASSWORD {
-        return Err(TransferError::Invalid(format!("Mật khẩu file cần ít nhất {MIN_PASSWORD} ký tự")));
-    }
-    Ok(())
-}
-
 fn key(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
     let mut key = [0u8; 32];
     pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations, &mut key);
@@ -134,17 +133,19 @@ fn key(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
 
 /// The header fields bound to the ciphertext, so none can be swapped.
 fn aad(iterations: u32, salt: &str) -> Vec<u8> {
-    format!("{FORMAT}/{VERSION}/{KDF}/{iterations}/{salt}").into_bytes()
+    format!("{FORMAT}/{ENCRYPTED_VERSION}/{KDF}/{iterations}/{salt}").into_bytes()
 }
 
+#[cfg(test)]
 fn random<const N: usize>() -> Result<[u8; N]> {
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).map_err(|e| TransferError::Invalid(format!("Không tạo được số ngẫu nhiên: {e}")))?;
     Ok(bytes)
 }
 
+/// A version 1 file, as earlier builds wrote them (tests only: exports are plain now).
+#[cfg(test)]
 fn seal(bundle: &Bundle, password: &str, iterations: u32) -> Result<Vec<u8>> {
-    check_password(password)?;
     let (salt, nonce) = (random::<16>()?, random::<12>()?);
     let salt_b64 = STANDARD.encode(salt);
     let cipher = Aes256Gcm::new_from_slice(&key(password, &salt, iterations)).expect("32-byte key");
@@ -155,7 +156,7 @@ fn seal(bundle: &Bundle, password: &str, iterations: u32) -> Result<Vec<u8>> {
         .map_err(|_| invalid("Không mã hoá được dữ liệu"))?;
     let envelope = Envelope {
         format: FORMAT.into(),
-        version: VERSION,
+        version: ENCRYPTED_VERSION,
         kdf: KDF.into(),
         iterations,
         salt: salt_b64,
@@ -171,7 +172,7 @@ fn open(file: &[u8], password: &str) -> Result<Bundle> {
     if envelope.format != FORMAT {
         return Err(invalid("Không phải file export account của Sky Manager"));
     }
-    if envelope.version != VERSION || envelope.kdf != KDF {
+    if envelope.version != ENCRYPTED_VERSION || envelope.kdf != KDF {
         return Err(invalid("File export của phiên bản khác, app này chưa đọc được"));
     }
     if !(1..=MAX_ITERATIONS).contains(&envelope.iterations) {
@@ -184,6 +185,44 @@ fn open(file: &[u8], password: &str) -> Result<Bundle> {
     let aad = aad(envelope.iterations, &envelope.salt);
     let plain = cipher.decrypt(&nonce.into(), Payload { msg: &data, aad: &aad }).map_err(|_| TransferError::Decrypt)?;
     serde_json::from_slice(&plain).map_err(|_| invalid("Nội dung file export không hợp lệ"))
+}
+
+/// The accounts as plain, pretty JSON text.
+fn to_text(accounts: Vec<Exported>, exported_at: u64) -> String {
+    let bundle = Bundle { format: Some(FORMAT.into()), version: Some(VERSION), exported_at, accounts };
+    serde_json::to_string_pretty(&bundle).expect("the bundle serializes")
+}
+
+/// The accounts of an export text: plain (version 2, or a bare array of
+/// accounts), or a password-protected file of version 1.
+fn parse(text: &str, password: Option<&str>) -> Result<Vec<Exported>> {
+    if text.len() as u64 > MAX_FILE {
+        return Err(invalid("Nội dung quá lớn, không phải export account"));
+    }
+    let text = text.trim().trim_start_matches('\u{feff}');
+    if text.is_empty() {
+        return Err(invalid("Chưa có nội dung để import"));
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| TransferError::Invalid(format!("Nội dung không phải JSON hợp lệ: {e}")))?;
+    let shape = |e: serde_json::Error| TransferError::Invalid(format!("Danh sách account không hợp lệ: {e}"));
+    if value.is_array() {
+        return serde_json::from_value(value).map_err(shape);
+    }
+    if value.get("kdf").is_some() && value.get("data").is_some() {
+        let password = password.filter(|p| !p.is_empty()).ok_or(TransferError::NeedsPassword)?;
+        return Ok(open(text.as_bytes(), password)?.accounts);
+    }
+    if value.get("format").is_some_and(|f| f != FORMAT) {
+        return Err(invalid("Không phải export account của Sky Manager"));
+    }
+    if value.get("version").and_then(|v| v.as_u64()).is_some_and(|v| v > VERSION as u64) {
+        return Err(invalid("Export của phiên bản mới hơn, hãy cập nhật app"));
+    }
+    if value.get("accounts").is_none() {
+        return Err(invalid("Không phải export account của Sky Manager"));
+    }
+    Ok(serde_json::from_value::<Bundle>(value).map_err(shape)?.accounts)
 }
 
 /// Collects the accounts with their secrets. Touches the disk (secrets): run off the async runtime.
@@ -278,32 +317,55 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| TransferError::Invalid(format!("Lỗi nội bộ: {e}")))?
 }
 
-/// Exports every account to `path`, encrypted with `password`.
-#[tauri::command]
-pub async fn accounts_export(app: tauri::AppHandle, path: String, password: String) -> Result<ExportReport> {
+/// Every account with a sid, as JSON text.
+fn export(app: &tauri::AppHandle) -> Result<(String, usize, Vec<String>)> {
     use tauri::Manager;
-    check_password(&password)?;
+    let (accounts, skipped) = collect(&app.state::<AccountRegistry>());
+    if accounts.is_empty() {
+        return Err(invalid("Không có account nào có sid để export"));
+    }
+    let exported = accounts.len();
+    Ok((to_text(accounts, crate::store::now_ms()), exported, skipped))
+}
+
+/// Every account as JSON text, to show and copy.
+#[tauri::command]
+pub async fn accounts_export_text(app: tauri::AppHandle) -> Result<ExportReport> {
     blocking(move || {
-        let registry = app.state::<AccountRegistry>();
-        let (accounts, skipped) = collect(&registry);
-        if accounts.is_empty() {
-            return Err(invalid("Không có account nào có sid để export"));
-        }
-        let exported = accounts.len();
-        let file = seal(&Bundle { exported_at: crate::store::now_ms(), accounts }, &password, ITERATIONS)?;
-        write_private(Path::new(&path), &file)?;
-        Ok(ExportReport { exported, skipped })
+        let (text, exported, skipped) = export(&app)?;
+        Ok(ExportReport { exported, skipped, text: Some(text) })
     })
     .await
 }
 
-/// Imports the accounts of the file at `path`; those already here are skipped.
+/// Writes every account as JSON text to `path` (readable by the current user only).
 #[tauri::command]
-pub async fn accounts_import(app: tauri::AppHandle, path: String, password: String) -> Result<ImportReport> {
+pub async fn accounts_export_file(app: tauri::AppHandle, path: String) -> Result<ExportReport> {
+    blocking(move || {
+        let (text, exported, skipped) = export(&app)?;
+        write_private(Path::new(&path), text.as_bytes())?;
+        Ok(ExportReport { exported, skipped, text: None })
+    })
+    .await
+}
+
+/// The text of a file picked for import, to show before importing it.
+#[tauri::command]
+pub async fn accounts_read_file(path: String) -> Result<String> {
+    blocking(move || {
+        String::from_utf8(read_limited(Path::new(&path))?).map_err(|_| invalid("File không phải văn bản (UTF-8)"))
+    })
+    .await
+}
+
+/// Imports the accounts of an export text; those already here are skipped.
+/// `password` only for a password-protected file of an earlier build.
+#[tauri::command]
+pub async fn accounts_import_text(app: tauri::AppHandle, text: String, password: Option<String>) -> Result<ImportReport> {
     use tauri::Manager;
     blocking(move || {
-        let bundle = open(&read_limited(Path::new(&path))?, &password)?;
-        Ok(restore(&app.state::<AccountRegistry>(), bundle.accounts))
+        let accounts = parse(&text, password.as_deref())?;
+        Ok(restore(&app.state::<AccountRegistry>(), accounts))
     })
     .await
 }
@@ -338,8 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn a_file_opens_only_with_its_password_and_hides_every_secret() {
+    fn old_password_files_open_only_with_their_password() {
         let bundle = Bundle {
+            format: None,
+            version: None,
             exported_at: 1,
             accounts: vec![Exported {
                 label: "A".into(),
@@ -378,8 +442,14 @@ mod tests {
         envelope.data = STANDARD.encode(data);
         assert!(matches!(open(&serde_json::to_vec(&envelope).unwrap(), "mat-khau-dai"), Err(TransferError::Decrypt)));
 
-        assert!(seal(&bundle, "ngan", FAST).is_err(), "password too short");
         assert!(open(b"{}", "mat-khau-dai").is_err());
+
+        // Through the import text: the password is asked for, then used.
+        let text = std::str::from_utf8(&file).unwrap();
+        assert!(matches!(parse(text, None), Err(TransferError::NeedsPassword)));
+        assert!(matches!(parse(text, Some("")), Err(TransferError::NeedsPassword)));
+        assert!(matches!(parse(text, Some("sai-mat-khau")), Err(TransferError::Decrypt)));
+        assert_eq!(parse(text, Some("mat-khau-dai")).unwrap(), bundle.accounts);
         assert!(open(b"not json", "mat-khau-dai").is_err());
     }
 
@@ -399,11 +469,12 @@ mod tests {
         source.save_im_credentials(one.id, "love1", "pw1").unwrap();
         let (accounts, skipped) = collect(&source);
         assert_eq!((accounts.len(), skipped.len()), (2, 0));
-        let file = seal(&Bundle { exported_at: 1, accounts }, "mat-khau-dai", FAST).unwrap();
+        let text = to_text(accounts, 1);
+        assert!(text.contains("\"sid\": \"sid-1\"") && text.contains("\"version\": 2"), "plain JSON: {text}");
 
         let (_b, target) = registry();
         target.add(new("Đã có", "dev-2", "sid-x")).unwrap();
-        let report = restore(&target, open(&file, "mat-khau-dai").unwrap().accounts);
+        let report = restore(&target, parse(&text, None).unwrap());
         assert_eq!(report, ImportReport { added: vec!["Một".into()], skipped: vec!["Hai".into()], failed: vec![] });
 
         let moved = target.list().into_iter().find(|a| a.device_uuid == "dev-1").unwrap();
@@ -414,6 +485,20 @@ mod tests {
         let kept = target.list().into_iter().find(|a| a.device_uuid == "dev-2").unwrap();
         assert_eq!((kept.label.as_str(), target.with_session(kept.id).unwrap().1.as_str()), ("Đã có", "sid-x"));
         assert_ne!(moved.id, one.id, "a new local id");
+    }
+
+    #[test]
+    fn import_text_takes_a_bare_list_and_refuses_what_is_not_an_export() {
+        let one = r#"{"label":"A","deviceUuid":"d1","version":"7.77.0","sid":"s1"}"#;
+        let accounts = parse(&format!("\u{feff}  [{one}]\n"), None).unwrap();
+        assert_eq!((accounts.len(), accounts[0].sid.as_str(), accounts[0].im.is_none()), (1, "s1", true));
+        assert_eq!(parse(&format!(r#"{{"accounts":[{one}]}}"#), None).unwrap().len(), 1);
+
+        for bad in ["", "   ", "not json", "{}", r#"{"format":"other","accounts":[]}"#, r#"[{"label":"A"}]"#] {
+            assert!(matches!(parse(bad, None), Err(TransferError::Invalid(_))), "{bad:?} accepted");
+        }
+        let newer = format!(r#"{{"format":"{FORMAT}","version":3,"accounts":[]}}"#);
+        assert!(parse(&newer, None).unwrap_err().to_string().contains("mới hơn"));
     }
 
     #[test]

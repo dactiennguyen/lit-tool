@@ -258,10 +258,20 @@ export const useUpdateAccount = () =>
 export const useRemoveAccount = () => useAccountsMutation((account: Account) => api.accounts.remove(account.id));
 
 export const useImportAccounts = () =>
-  useAccountsMutation(({ path, password }: { path: string; password: string }) => api.accounts.import(path, password));
+  useAccountsMutation(({ text, password }: { text: string; password?: string }) => api.accounts.importText(text, password));
 
-export const useExportAccounts = () =>
-  useMutation({ mutationFn: ({ path, password }: { path: string; password: string }) => api.accounts.export(path, password) });
+/** The export text, fetched fresh each time the dialog opens and not kept after (it holds every sid). */
+export const useExportText = (enabled: boolean) =>
+  useQuery({
+    queryKey: [...queryKeys.accounts, "export-text"],
+    queryFn: api.accounts.exportText,
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+
+export const useExportFile = () => useMutation({ mutationFn: (path: string) => api.accounts.exportFile(path) });
 
 /** Opens the live connection; its state is kept in tcp-status. */
 export const useConnectTcp = () => useMutation({ mutationFn: connectTcp });
