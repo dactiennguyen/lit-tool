@@ -16,6 +16,7 @@ mod siua;
 mod store;
 mod transfer;
 mod update;
+mod window;
 
 use tauri::Manager;
 
@@ -43,8 +44,11 @@ pub fn run() {
             http::init(app.handle());
             dfpid::start(app.handle());
             update::start(app.handle());
+            window::init_tray(app.handle());
+            window::keep_awake();
             Ok(())
         })
+        .on_window_event(window::on_window_event)
         .invoke_handler(tauri::generate_handler![
             accounts::accounts_list,
             dfpid::device_generate,
@@ -73,12 +77,15 @@ pub fn run() {
             listen::hx_listen_status,
             update::update_status,
             update::update_check,
+            window::close_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                update::install_on_quit(app);
-            }
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => update::install_on_quit(app),
+            // macOS: clicking the Dock icon while the window is hidden in the tray.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => window::show(app),
+            _ => {}
         });
 }

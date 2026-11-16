@@ -54,6 +54,19 @@ pub struct SavedServers {
     pub fetched_at: u64,
 }
 
+/// What the window's close button does (window.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OnClose {
+    /// Ask each time: run in the background (tray) or quit.
+    #[default]
+    Ask,
+    /// Hide the window; the app keeps running from the tray.
+    Tray,
+    /// Quit the app.
+    Quit,
+}
+
 /// The stored settings, also as sent to the webview. Missing fields take their defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -63,6 +76,8 @@ pub struct AppSettings {
     pub im_app_key: String,
     /// Connect to the chat server right after an account logs in.
     pub auto_connect_tcp: bool,
+    /// What the window's close button does.
+    pub on_close: OnClose,
     /// Server list saved on first use; not part of a patch.
     pub im_servers: Option<SavedServers>,
 }
@@ -73,6 +88,7 @@ impl Default for AppSettings {
             api_base_url: DEFAULT_API_BASE_URL.to_owned(),
             im_app_key: hx::DEFAULT_APP_KEY.to_owned(),
             auto_connect_tcp: false,
+            on_close: OnClose::Ask,
             im_servers: None,
         }
     }
@@ -95,6 +111,7 @@ pub struct SettingsPatch {
     pub api_base_url: Option<String>,
     pub im_app_key: Option<String>,
     pub auto_connect_tcp: Option<bool>,
+    pub on_close: Option<OnClose>,
 }
 
 /// Accept only an http(s) origin; normalise to `scheme://host[:port]`
@@ -140,6 +157,9 @@ impl SettingsStore {
         }
         if let Some(auto) = patch.auto_connect_tcp {
             next.auto_connect_tcp = auto;
+        }
+        if let Some(on_close) = patch.on_close {
+            next.on_close = on_close;
         }
         self.db.write(|tx| db::save_settings(tx, &next))?;
         *current = next.clone();
@@ -224,6 +244,17 @@ pub async fn settings_refresh_im_servers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn on_close_defaults_to_ask_and_reads_lowercase() {
+        assert_eq!(AppSettings::default().on_close, OnClose::Ask);
+        let s: AppSettings = serde_json::from_value(serde_json::json!({ "onClose": "tray" })).unwrap();
+        assert_eq!(s.on_close, OnClose::Tray);
+        // Settings saved before this field existed still load, as Ask.
+        let old: AppSettings = serde_json::from_value(serde_json::json!({ "autoConnectTcp": true })).unwrap();
+        assert_eq!(old.on_close, OnClose::Ask);
+        assert_eq!(serde_json::to_value(OnClose::Quit).unwrap(), "quit");
+    }
 
     fn open(dir: &std::path::Path) -> SettingsStore {
         SettingsStore::open(Arc::new(Db::open(dir, None).unwrap())).unwrap()

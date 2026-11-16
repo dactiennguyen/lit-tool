@@ -26,6 +26,7 @@ import { litQueries, useAccounts } from "@/lib/queries";
 import { useSession } from "@/lib/sessions";
 import { useTcpStatus } from "@/lib/tcp-status";
 import { cn } from "@/lib/utils";
+import { CloseRequestHandler } from "@/features/window/close-dialog";
 
 const NAV: { to: "/overview" | "/accounts" | "/outreach"; label: string; icon: LucideIcon }[] = [
   { to: "/overview", label: "Tổng quan", icon: LayoutDashboardIcon },
@@ -127,6 +128,7 @@ export function AppShell() {
         <Outlet />
       </main>
       <UpdateGate />
+      <CloseRequestHandler />
     </div>
   );
 }

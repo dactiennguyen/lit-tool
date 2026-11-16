@@ -13,6 +13,7 @@ import { useSettings, useUpdateSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { checkBaseUrl } from "@/lib/validation";
 import { ImServerCard } from "./im-server-card";
+import { WindowCard } from "./window-card";
 
 const THEMES: { value: Theme; label: string; icon: LucideIcon }[] = [
   { value: "light", label: "Sáng", icon: SunIcon },
@@ -30,6 +31,7 @@ export function SettingsPage() {
         <div className="mx-auto grid max-w-2xl gap-4 p-5">
           <ServerApiCard />
           <ImServerCard />
+          <WindowCard />
 
           <Card>
             <CardHeader>

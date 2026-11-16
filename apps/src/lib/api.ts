@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ChatMessage,
   Conversation,
@@ -196,6 +197,8 @@ export interface AppSettings {
   imAppKey: string;
   /** Connect to the chat server right after an account logs in. */
   autoConnectTcp: boolean;
+  /** What the window's close button does (window.rs). */
+  onClose: OnClose;
   /** Server list fetched for the app key on first use and reused; null until then. */
   imServers: SavedImServers | null;
 }
@@ -209,7 +212,10 @@ export interface SavedImServers {
   fetchedAt: number;
 }
 
-export type SettingsPatch = Partial<Pick<AppSettings, "apiBaseUrl" | "imAppKey" | "autoConnectTcp">>;
+export type SettingsPatch = Partial<Pick<AppSettings, "apiBaseUrl" | "imAppKey" | "autoConnectTcp" | "onClose">>;
+
+/** OnClose of settings.rs: ask each time, run in the background (tray), or quit. */
+export type OnClose = "ask" | "tray" | "quit";
 
 export const DEFAULT_API_BASE_URL = "https://www.litatom.com";
 export const DEFAULT_IM_APP_KEY = "1102190223222824#lit";
@@ -300,6 +306,13 @@ export const api = {
       call<FeedPage>("lit_feeds", { accountId, kind, startPos, num }),
     /** `user/conversations`: the account's conversation list. */
     conversations: (accountId: string) => call<Conversation[]>("lit_conversations", { accountId }),
+  },
+  window: {
+    /** From the close dialog: hide to the tray or quit; `remember` saves it as the setting. */
+    close: (action: Exclude<OnClose, "ask">, remember: boolean) => call<void>("close_window", { action, remember }),
+    /** The close button was pressed and the setting is "ask": show the close dialog. */
+    onCloseAsked: async (handler: () => void): Promise<UnlistenFn> =>
+      isTauri() ? listen("close-asked", () => handler()) : () => {},
   },
   settings: {
     get: () => call<AppSettings>("settings_get"),

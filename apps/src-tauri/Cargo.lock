@@ -106,6 +106,7 @@ dependencies = [
  "hmac",
  "keyring",
  "md-5",
+ "objc2-foundation",
  "pbkdf2",
  "reqwest",
  "rusqlite",
