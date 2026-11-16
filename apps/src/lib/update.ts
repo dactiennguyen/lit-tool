@@ -10,6 +10,7 @@ export type UpdateState =
   | { state: "idle" }
   | { state: "checking" }
   | { state: "latest"; checkedAt: number }
+  | { state: "available"; version: string; notes: string }
   | { state: "downloading"; version: string; notes: string; got: number; total: number | null }
   | { state: "ready"; version: string; notes: string }
   | { state: "installing"; version: string }
@@ -51,6 +52,9 @@ export const isBlocking = (u: UpdateView | null) =>
   u?.state === "downloading" || u?.state === "ready" || u?.state === "installing";
 
 export const checkUpdate = () => invoke<void>("update_check");
+
+/** Downloads and installs the offered version (state "available"); the app opens again on it. */
+export const installUpdate = () => invoke<void>("update_install");
 
 const MB = 1_048_576;
 export const mb = (n: number) => (n / MB).toFixed(1).replace(".", ",");

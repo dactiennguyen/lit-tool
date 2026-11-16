@@ -17,7 +17,7 @@ import { useTheme } from "@/lib/theme";
 import { AccountAvatar } from "@/components/account-avatar";
 import { SessionDot, sessionLabel } from "@/components/session-status";
 import { TcpIcon } from "@/components/tcp-status";
-import { UpdateGate, UpdateLine } from "@/features/update/update-status";
+import { UpdateButton, UpdateGate } from "@/features/update/update-status";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -105,22 +105,20 @@ export function AppShell() {
 
         <AccountList collapsed={collapsed} />
 
-        {!collapsed && (
-          <div className="shrink-0 border-t p-2 pb-0">
-            <UpdateLine />
+        <div className="shrink-0 border-t">
+          <UpdateButton collapsed={collapsed} />
+          <div className={cn("flex items-center gap-1 p-2", collapsed ? "flex-col" : "")}>
+            <Link
+              to="/settings"
+              title={collapsed ? "Cài đặt" : undefined}
+              className={cn(itemClass, "h-9", collapsed ? "w-full justify-center px-0" : "flex-1")}
+              activeProps={{ className: activeClass }}
+            >
+              <SettingsIcon className="size-4 shrink-0" aria-hidden />
+              {!collapsed && "Cài đặt"}
+            </Link>
+            <ThemeToggle />
           </div>
-        )}
-        <div className={cn("flex shrink-0 items-center gap-1 p-2", collapsed ? "flex-col" : "")}>
-          <Link
-            to="/settings"
-            title={collapsed ? "Cài đặt" : undefined}
-            className={cn(itemClass, "h-9", collapsed ? "w-full justify-center px-0" : "flex-1")}
-            activeProps={{ className: activeClass }}
-          >
-            <SettingsIcon className="size-4 shrink-0" aria-hidden />
-            {!collapsed && "Cài đặt"}
-          </Link>
-          <ThemeToggle />
         </div>
       </aside>
 

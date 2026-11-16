@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { checkBaseUrl } from "@/lib/validation";
 import { ImServerCard } from "./im-server-card";
 import { WindowCard } from "./window-card";
+import { VersionCard } from "@/features/update/update-status";
 
 const THEMES: { value: Theme; label: string; icon: LucideIcon }[] = [
   { value: "light", label: "Sáng", icon: SunIcon },
@@ -32,6 +33,7 @@ export function SettingsPage() {
           <ServerApiCard />
           <ImServerCard />
           <WindowCard />
+          <VersionCard />
 
           <Card>
             <CardHeader>

@@ -1,19 +1,28 @@
+import { useEffect, useRef, useState } from "react";
 import { DownloadIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { checkUpdate, isBlocking, mb, useUpdate } from "@/lib/update";
+import { checkUpdate, installUpdate, isBlocking, mb, useUpdate } from "@/lib/update";
 import { cn } from "@/lib/utils";
 
 const clock = (at: number) => new Date(at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 
 /**
- * Every newer version is mandatory (update.rs): from the moment one is found
- * until the app opens again on it, this covers the window and cannot be closed.
- * A failed check or install shows nothing here, so the app stays usable offline.
+ * From the moment a version is being downloaded (found when the app opened,
+ * or the update button pressed) until the app opens again on it, this covers
+ * the window and cannot be closed. A failed check shows nothing, so the app
+ * stays usable offline; a failed download or install is told in a toast.
  */
 export function UpdateGate() {
   const u = useUpdate();
+  const wasBlocking = useRef(false);
+  useEffect(() => {
+    if (wasBlocking.current && u?.state === "failed") toast.error(`Cập nhật không thành công: ${u.message}`);
+    wasBlocking.current = isBlocking(u);
+  }, [u]);
   if (!u || !isBlocking(u)) return null;
   const part = u.state === "downloading" && u.total ? u.got / u.total : null;
   const notes = u.state === "installing" ? "" : u.notes.trim();
@@ -24,7 +33,7 @@ export function UpdateGate() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <DownloadIcon className="size-4 text-primary" aria-hidden />
-            Cập nhật bắt buộc
+            Đang cập nhật
           </DialogTitle>
           <DialogDescription>
             Có bản <b className="text-foreground">{u.version}</b> (đang dùng {u.current}). App tự tải, cài rồi mở lại.
@@ -72,46 +81,88 @@ export function UpdateGate() {
   );
 }
 
-/** The running version and a check button, at the bottom of the sidebar. */
-export function UpdateLine() {
+/**
+ * The update button at the bottom of the sidebar, only while a newer version
+ * found by a later check (every 10 minutes, or Kiểm tra in Cài đặt) waits.
+ */
+export function UpdateButton({ collapsed }: { collapsed: boolean }) {
+  const u = useUpdate();
+  const [starting, setStarting] = useState(false);
+  if (u?.state !== "available") return null;
+  const label = `Cập nhật lên v${u.version}`;
+  const install = () => {
+    setStarting(true);
+    installUpdate()
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
+      .finally(() => setStarting(false));
+  };
+  const icon = starting ? <Loader2Icon className="animate-spin" aria-hidden /> : <DownloadIcon aria-hidden />;
+
+  return (
+    <div className={cn("p-2 pb-0", collapsed && "flex justify-center")}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size={collapsed ? "icon" : "sm"}
+              className={cn(!collapsed && "w-full")}
+              aria-label={label}
+              disabled={starting}
+              onClick={install}
+            />
+          }
+        >
+          {icon}
+          {!collapsed && label}
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64 whitespace-pre-line">
+          {u.notes.trim() ? `Có bản v${u.version} (đang dùng v${u.current}).\n${u.notes.trim()}` : `Có bản v${u.version} (đang dùng v${u.current})`}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+/** The running version and a check button, in Cài đặt. */
+export function VersionCard() {
   const u = useUpdate();
   if (!u) return null;
   const status =
     u.state === "off"
-      ? { text: "không tự cập nhật", title: u.reason }
+      ? { text: `Không tự cập nhật: ${u.reason}` }
       : u.state === "checking"
-        ? { text: "đang kiểm tra…" }
+        ? { text: "Đang kiểm tra…" }
         : u.state === "latest"
-          ? { text: "bản mới nhất", title: `Kiểm tra lúc ${clock(u.checkedAt)}` }
-          : u.state === "failed"
-            ? { text: "không kiểm tra được", title: u.message, error: true }
-            : null;
+          ? { text: `Bản mới nhất · kiểm tra lúc ${clock(u.checkedAt)}` }
+          : u.state === "available"
+            ? { text: `Có bản v${u.version}: bấm nút Cập nhật ở cuối thanh bên` }
+            : u.state === "failed"
+              ? { text: `Lỗi cập nhật: ${u.message}`, error: true }
+              : u.state === "idle"
+                ? { text: "Tự kiểm tra khi mở app và mỗi 10 phút" }
+                : { text: "Đang cập nhật…" };
   const canCheck = u.state === "idle" || u.state === "latest" || u.state === "failed";
 
   return (
-    <div className="flex items-center gap-1 px-2.5 text-xs text-muted-foreground">
-      <span className="min-w-0 flex-1 truncate" title={status?.title}>
-        <span className="font-mono">v{u.current}</span>
-        {status && <span className={cn(status.error && "text-destructive")}> · {status.text}</span>}
-      </span>
-      {u.state !== "off" && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Kiểm tra cập nhật"
-                disabled={!canCheck}
-                onClick={() => void checkUpdate()}
-              />
-            }
-          >
+    <Card>
+      <CardHeader>
+        <CardTitle>Phiên bản</CardTitle>
+        <CardDescription>Tự kiểm tra khi mở app và mỗi 10 phút.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-sm">v{u.current}</p>
+          <p className={cn("truncate text-xs text-muted-foreground", status.error && "text-destructive")} title={status.text}>
+            {status.text}
+          </p>
+        </div>
+        {u.state !== "off" && (
+          <Button variant="outline" size="sm" disabled={!canCheck} onClick={() => void checkUpdate()}>
             <RefreshCwIcon className={cn(u.state === "checking" && "animate-spin")} aria-hidden />
-          </TooltipTrigger>
-          <TooltipContent>Kiểm tra cập nhật</TooltipContent>
-        </Tooltip>
-      )}
-    </div>
+            Kiểm tra
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

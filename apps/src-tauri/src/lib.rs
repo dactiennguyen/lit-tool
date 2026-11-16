@@ -79,6 +79,7 @@ pub fn run() {
             listen::hx_listen_status,
             update::update_status,
             update::update_check,
+            update::update_install,
             window::close_window,
         ])
         .build(tauri::generate_context!())

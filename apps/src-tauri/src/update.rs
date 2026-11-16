@@ -1,10 +1,14 @@
 //! Self-update from the GitHub releases (tauri-plugin-updater). The installed app
-//! reads `latest.json` of the latest release once when it opens, or when the
-//! user asks. Every newer version is mandatory: it is downloaded at once, its
-//! minisign signature checked against the public key in tauri.conf.json, then
-//! installed and the app opened again; the UI covers the window meanwhile
-//! (update-gate.tsx). A failed check (no network, GitHub down) blocks nothing.
-//! The UI hears of each change through the "update" event.
+//! reads `latest.json` of the latest release when it opens, then every
+//! RECHECK while it runs, and when the user asks.
+//!
+//! A newer version found when the app opens is mandatory: it is downloaded at
+//! once, its minisign signature checked against the public key in
+//! tauri.conf.json, then installed and the app opened again; the UI covers the
+//! window meanwhile (UpdateGate). One found later is offered (Available): the
+//! sidebar shows an update button, and `update_install` does the same download
+//! and install. A failed check (no network, GitHub down) blocks nothing. The
+//! UI hears of each change through the "update" event.
 //!
 //! Only an installed app updates itself: `tauri dev` and the portable Windows
 //! exe carry no bundle type.
@@ -20,6 +24,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 const PROGRESS: Duration = Duration::from_millis(250);
 /// Longest the app waits on quit for a downloaded update to install.
 const ON_QUIT: Duration = Duration::from_secs(30);
+/// Time between two checks while the app runs.
+const RECHECK: Duration = Duration::from_secs(10 * 60);
 
 /// Where the update stands (`UpdateView` in src/lib/update.ts).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -32,6 +38,8 @@ pub enum UpdateState {
     Checking,
     /// The last check found nothing newer, at `checked_at` (ms since the epoch).
     Latest { checked_at: u64 },
+    /// A newer version found while the app runs, waiting for the user to install it.
+    Available { version: String, notes: String },
     Downloading { version: String, notes: String, got: u64, total: Option<u64> },
     /// Downloaded and verified; being installed.
     Ready { version: String, notes: String },
@@ -51,6 +59,8 @@ pub struct UpdateView {
 #[derive(Default)]
 struct Inner {
     state: Option<UpdateState>,
+    /// The update offered (state Available).
+    offered: Option<Update>,
     /// The update downloaded and verified, with its bytes.
     ready: Option<(Update, Vec<u8>)>,
 }
@@ -86,19 +96,35 @@ fn off_reason<R: Runtime>(app: &AppHandle<R>) -> Option<&'static str> {
     }
 }
 
-/// Turns updates off for a copy that cannot update itself, else checks once in the background.
+/// What a check does with a newer version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnFound {
+    /// Download and install it now (when the app opens).
+    Install,
+    /// Offer it: the user installs it with the update button.
+    Offer,
+}
+
+/// Turns updates off for a copy that cannot update itself, else checks in the
+/// background now (mandatory) and every RECHECK after (offered).
 pub fn start<R: Runtime>(app: &AppHandle<R>) {
     if let Some(reason) = off_reason(app) {
         app.state::<Updates>().lock().state = Some(UpdateState::Off { reason: reason.into() });
         return;
     }
     let app = app.clone();
-    tauri::async_runtime::spawn(async move { check(&app).await });
+    tauri::async_runtime::spawn(async move {
+        check(&app, OnFound::Install).await;
+        loop {
+            tokio::time::sleep(RECHECK).await;
+            check(&app, OnFound::Offer).await;
+        }
+    });
 }
 
-/// Checks for a newer version and downloads it. Does nothing while off,
-/// checking, downloading, or once one is ready.
-pub async fn check<R: Runtime>(app: &AppHandle<R>) {
+/// Checks for a newer version, then installs or offers it. Does nothing while
+/// off, checking, offering, downloading, or once one is ready.
+pub async fn check<R: Runtime>(app: &AppHandle<R>, on_found: OnFound) {
     {
         let updates = app.state::<Updates>();
         let mut inner = updates.lock();
@@ -116,9 +142,31 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>) {
     };
     match found {
         Ok(None) => set(app, UpdateState::Latest { checked_at: crate::store::now_ms() }),
-        Ok(Some(update)) => download(app, update).await,
+        Ok(Some(update)) if on_found == OnFound::Install => download(app, update).await,
+        Ok(Some(update)) => {
+            let state = UpdateState::Available { version: update.version.clone(), notes: update.body.clone().unwrap_or_default() };
+            app.state::<Updates>().lock().offered = Some(update);
+            set(app, state);
+        }
         Err(e) => fail(app, &e),
     }
+}
+
+/// Downloads and installs the offered update (the update button).
+pub async fn install_offered<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let update = {
+        let updates = app.state::<Updates>();
+        let mut inner = updates.lock();
+        if !matches!(inner.state, Some(UpdateState::Available { .. })) {
+            return Err("Không có bản cập nhật nào đang chờ".into());
+        }
+        let update = inner.offered.take().ok_or("Không có bản cập nhật nào đang chờ")?;
+        // Out of Available under the same lock, so a second click finds nothing.
+        inner.state = Some(UpdateState::Downloading { version: update.version.clone(), notes: String::new(), got: 0, total: None });
+        update
+    };
+    download(app, update).await;
+    Ok(())
 }
 
 async fn download<R: Runtime>(app: &AppHandle<R>, update: Update) {
@@ -217,10 +265,16 @@ pub fn update_status(app: AppHandle) -> UpdateView {
     view(&app)
 }
 
-/// Checks now; the "update" event tells how it went.
+/// Checks now and offers what it finds; the "update" event tells how it went.
 #[tauri::command]
 pub async fn update_check(app: AppHandle) {
-    check(&app).await;
+    check(&app, OnFound::Offer).await;
+}
+
+/// Downloads and installs the offered update; the app opens again on it.
+#[tauri::command]
+pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    install_offered(&app).await
 }
 
 #[cfg(test)]
@@ -240,5 +294,9 @@ mod tests {
             serde_json::json!({ "current": "0.1.0", "state": "failed", "message": "x", "checkedAt": 5 })
         );
         assert_eq!(view(UpdateState::Idle), serde_json::json!({ "current": "0.1.0", "state": "idle" }));
+        assert_eq!(
+            view(UpdateState::Available { version: "0.2.0".into(), notes: "Mới".into() }),
+            serde_json::json!({ "current": "0.1.0", "state": "available", "version": "0.2.0", "notes": "Mới" })
+        );
     }
 }

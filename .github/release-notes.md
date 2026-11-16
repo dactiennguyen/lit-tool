@@ -18,4 +18,4 @@ Bản `.app.zip` là app macOS dạng nén, dùng khi không muốn mở file `.
 
 ## Tự cập nhật
 
-App đã cài tự tìm bản mới trên trang Releases này mỗi lần mở app (hoặc bấm nút kiểm tra ở cuối thanh bên). Có bản mới là bắt buộc: app tự tải, kiểm chữ ký, cài rồi mở lại. Bản `_portable.exe` không tự cập nhật.
+App đã cài tự tìm bản mới trên trang Releases này khi mở app và mỗi 10 phút khi đang chạy (hoặc bấm Kiểm tra trong Cài đặt → Phiên bản). Có bản mới lúc mở app là bắt buộc: app tự tải, kiểm chữ ký, cài rồi mở lại. Tìm thấy khi đang chạy thì cuối thanh bên hiện nút **Cập nhật**, bấm là tự cài và mở lại. Bản `_portable.exe` không tự cập nhật.
