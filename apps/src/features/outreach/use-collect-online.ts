@@ -12,9 +12,15 @@ import type { StatusText } from "./outreach-view";
 const PAGE_SIZE = 20;
 /** Safety cap per account so a run never pages forever when few people are online. */
 const MAX_PAGES_PER_ACCOUNT = 60;
-/** Pause between page requests so collecting stays gentle on the server. */
-const PAGE_PAUSE_MS = 400;
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Default pause (seconds) between page requests when the caller gives none. */
+const DEFAULT_PAUSE_SEC = 0.4;
+/** sleep(ms) that returns early as soon as `cancel.current` is set, so Stop is snappy. */
+const sleepUnlessCancelled = (ms: number, cancel: { readonly current: boolean }) =>
+  new Promise<void>((resolve) => {
+    const start = Date.now();
+    const tick = () => (cancel.current || Date.now() - start >= ms ? resolve() : setTimeout(tick, Math.min(150, ms)));
+    tick();
+  });
 
 const keyOf = (u: UserProfile) => u.userId ?? u.huanxinId ?? null;
 
@@ -48,11 +54,12 @@ export function useCollectOnline() {
     return added;
   };
 
-  const collect = useCallback(async (accountIds: string[], target: number) => {
+  const collect = useCallback(async (accountIds: string[], target: number, delaySec = DEFAULT_PAUSE_SEC) => {
     cancel.current = false;
     setRunning(true);
     setList([]); // each run starts a fresh list; several accounts merge into it
     const want = Math.max(1, target);
+    const pauseMs = Math.max(0, Math.round(delaySec * 1000));
     let failed: string | null = null;
     try {
       for (const accountId of accountIds) {
@@ -78,7 +85,7 @@ export function useCollectOnline() {
           if (res.hasNext === false) break;
           start = res.nextStart !== null && res.nextStart > start ? res.nextStart : start + res.users.length;
           if (foundRef.current.length >= want) break;
-          await sleep(PAGE_PAUSE_MS);
+          if (pauseMs) await sleepUnlessCancelled(pauseMs, cancel);
         }
       }
       const got = foundRef.current.length;

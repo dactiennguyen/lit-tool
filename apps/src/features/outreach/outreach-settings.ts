@@ -7,6 +7,8 @@ import { useSyncExternalStore } from "react";
 export interface OutreachSettings {
   /** How many people to collect. */
   target: number;
+  /** Seconds between online_users page requests while collecting. */
+  collectDelaySec: number;
   /** Recipient-list filter: hide people already messaged. */
   hideContacted: boolean;
   /** Skip already-messaged people when sending. */
@@ -27,12 +29,13 @@ const KEY = "sky-manager:outreach-settings";
 
 const DEFAULTS: OutreachSettings = {
   target: 100,
+  collectDelaySec: 0.4,
   hideContacted: false,
   skipContacted: true,
   cap: 0,
   mode: "single",
   text: "",
-  delaySec: 1,
+  delaySec: 2,
   firstContact: true,
 };
 
@@ -43,6 +46,8 @@ function load(): OutreachSettings {
     const r = raw as Record<string, unknown>;
     return {
       target: typeof r.target === "number" && r.target >= 1 ? Math.min(5000, Math.floor(r.target)) : DEFAULTS.target,
+      collectDelaySec:
+        typeof r.collectDelaySec === "number" && r.collectDelaySec >= 0 ? r.collectDelaySec : DEFAULTS.collectDelaySec,
       hideContacted: typeof r.hideContacted === "boolean" ? r.hideContacted : DEFAULTS.hideContacted,
       skipContacted: typeof r.skipContacted === "boolean" ? r.skipContacted : DEFAULTS.skipContacted,
       cap: typeof r.cap === "number" && r.cap >= 0 ? Math.floor(r.cap) : DEFAULTS.cap,

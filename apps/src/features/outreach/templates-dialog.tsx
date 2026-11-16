@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CheckIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { TemplateVarBar } from "./template-vars";
 import { setTemplates, useTemplates } from "./templates";
 
 /** Add / edit / delete saved message texts (localStorage). */
 export function TemplatesDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const templates = useTemplates();
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
 
@@ -35,7 +37,7 @@ export function TemplatesDialog({ open, onOpenChange }: { open: boolean; onOpenC
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Tin nhắn mẫu</DialogTitle>
-          <DialogDescription>Dùng cho “Ngẫu nhiên từ mẫu” khi gửi hàng loạt.</DialogDescription>
+          <DialogDescription>Dùng cho “Ngẫu nhiên từ mẫu” khi gửi hàng loạt. Có thể chèn biến như {"{ten}"}, {"{tuoi}"}.</DialogDescription>
         </DialogHeader>
 
         {templates.length ? (
@@ -75,7 +77,16 @@ export function TemplatesDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="tpl-draft">{editing === null ? "Thêm mẫu mới" : `Sửa mẫu ${editing + 1}`}</Label>
-          <Textarea id="tpl-draft" rows={3} maxLength={4000} placeholder="Nội dung mẫu" value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <Textarea
+            ref={draftRef}
+            id="tpl-draft"
+            rows={3}
+            maxLength={4000}
+            placeholder="Nội dung mẫu — có thể chèn {ten}, {tuoi}…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <TemplateVarBar textareaRef={draftRef} value={draft} onChange={setDraft} />
         </div>
 
         <DialogFooter>

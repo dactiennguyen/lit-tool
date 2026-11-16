@@ -1,4 +1,4 @@
-import { CheckIcon, DownloadIcon, SearchIcon, Trash2Icon, UsersIcon } from "lucide-react";
+import { CheckIcon, CircleHelpIcon, DownloadIcon, SearchIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { PersonAvatar } from "@/components/account-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -137,6 +137,7 @@ function RecipientRow({ user: u, sent, picked, onToggle }: { user: UserProfile; 
   const g = genderOf(u.gender);
   const meta = [g && GENDER_LABEL[g], u.age ? `${u.age} tuổi` : "", locationOf(u), ...tagNames(u, 2)].filter(Boolean).join(" · ");
   const sentCount = sent.reduce((n, c) => n + c.count, 0);
+  const uncertainCount = sent.reduce((n, c) => n + c.uncertain, 0);
   return (
     <li>
       <label className={cn("flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50", !picked && "opacity-60")}>
@@ -149,10 +150,14 @@ function RecipientRow({ user: u, sent, picked, onToggle }: { user: UserProfile; 
           </span>
           <span className="block truncate text-xs text-muted-foreground">{meta || "—"}</span>
         </span>
-        {sentCount > 0 && (
-          <Badge variant="outline" className="shrink-0 gap-1" title={sent.map((c) => `${c.accountLabel} (${c.count})`).join(", ")}>
-            <CheckIcon className="size-3" aria-hidden />
-            {sentCount}
+        {(sentCount > 0 || uncertainCount > 0) && (
+          <Badge
+            variant="outline"
+            className="shrink-0 gap-1"
+            title={sent.map((c) => `${c.accountLabel} (${c.count}${c.uncertain ? ` +${c.uncertain} chưa rõ` : ""})`).join(", ")}
+          >
+            {sentCount > 0 ? <CheckIcon className="size-3" aria-hidden /> : <CircleHelpIcon className="size-3" aria-hidden />}
+            {sentCount > 0 ? sentCount : `${uncertainCount}?`}
           </Badge>
         )}
       </label>

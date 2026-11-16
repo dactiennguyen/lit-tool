@@ -18,6 +18,12 @@ export interface SentEntry {
   text: string;
   /** A real send the server accepted. Failures are false. */
   ok: boolean;
+  /**
+   * The frame was written but no ACK came back (hx.rs SendUnknown): the message
+   * MAY have been delivered. Such a person is treated as contacted so a re-run
+   * doesn't blindly send again, until it can be reconciled against history.
+   */
+  uncertain?: boolean;
   /** Legacy: rows written by the old "chế độ thử" (dry run); never a contact. */
   dryRun?: boolean;
   error: string | null;
@@ -28,12 +34,15 @@ export interface SentRow extends SentEntry {
   id: number;
 }
 
-/** One peer and sending account: count of real (not dry-run) messages and the last time. */
+/** One peer and sending account: confirmed sends, unknown-outcome sends, and the last time. */
 export interface Contact {
   peerUid: string;
   accountId: string;
   accountLabel: string;
+  /** Sends the server confirmed. */
   count: number;
+  /** Sends with an unknown outcome (maybe delivered), held so they aren't blindly resent. */
+  uncertain: number;
   lastSentAt: number;
 }
 
@@ -65,11 +74,15 @@ export function recentSent(limit = 100): SentRow[] {
     .slice(0, limit);
 }
 
-/** Per peer + account, counting only accepted sends (failures and legacy dry runs excluded). */
+/**
+ * Per peer + account: confirmed sends plus unknown-outcome sends (both count as
+ * "contacted" so they aren't blindly resent). Clean failures and legacy dry runs
+ * are excluded, so a genuine failure can still be retried.
+ */
 export function sentContacts(): Contact[] {
   const byKey = new Map<string, Contact>();
   for (const r of allRows()
-    .filter((r) => r.ok && !r.dryRun)
+    .filter((r) => (r.ok || r.uncertain) && !r.dryRun)
     .sort((a, b) => a.sentAt - b.sentAt)) {
     const key = `${r.peerUid}|${r.accountId}`;
     const c = byKey.get(key);
@@ -77,7 +90,8 @@ export function sentContacts(): Contact[] {
       peerUid: r.peerUid,
       accountId: r.accountId,
       accountLabel: r.accountLabel,
-      count: (c?.count ?? 0) + 1,
+      count: (c?.count ?? 0) + (r.ok ? 1 : 0),
+      uncertain: (c?.uncertain ?? 0) + (r.ok ? 0 : 1),
       lastSentAt: r.sentAt,
     });
   }

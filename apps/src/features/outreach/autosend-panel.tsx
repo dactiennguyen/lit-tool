@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CheckIcon,
   HistoryIcon,
@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,10 +27,12 @@ import { canSend, MAX_TEXT_BYTES, utf8Bytes } from "@/features/chat/chat-view";
 import type { UserProfile } from "@/lib/lit-types";
 import { cn } from "@/lib/utils";
 import { HistoryDialog } from "./history-dialog";
+import { NumberField } from "./number-field";
 import { patchOutreachSettings, useOutreachSettings } from "./outreach-settings";
-import { estimateSeconds, formatDuration, messagesPerMinute, userKey } from "./outreach-view";
+import { estimateSeconds, fillTemplate, formatDuration, messagesPerMinute, SAMPLE_USER, userKey } from "./outreach-view";
 import { SendLog } from "./send-log";
 import type { Contact, SentRow } from "./sent-log";
+import { TemplateVarBar } from "./template-vars";
 import { TemplatesDialog } from "./templates-dialog";
 import { useTemplates } from "./templates";
 import { useBlast, type BlastSender } from "./use-blast";
@@ -81,6 +82,7 @@ export function AutoSendPanel({
   const senders = useMemo(() => online.filter((a) => senderIds.includes(a.id)), [online, senderIds]);
 
   // ③ message
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   useEffect(() => setTicked(new Set(templates.map((_, i) => i))), [templates]);
   const tickedTexts = useMemo(
@@ -93,6 +95,14 @@ export function AutoSendPanel({
   const oversized = tickedTexts.length - pool.length;
   const hasMessage = mode === "single" ? canSend(text) : pool.length > 0;
   const bytes = utf8Bytes(text);
+  // Single mode is deterministic: count recipients whose message becomes empty
+  // or over-limit once {variables} are filled, so it's visible before sending.
+  const invalidFilled = useMemo(() => {
+    if (mode !== "single") return 0;
+    const t = text.trim();
+    if (!t.includes("{")) return 0;
+    return targets.reduce((n, u) => (canSend(fillTemplate(t, u)) ? n : n + 1), 0);
+  }, [mode, text, targets]);
 
   // ④ pace + options come from the remembered settings (destructured above).
 
@@ -119,7 +129,10 @@ export function AutoSendPanel({
 
   const plannedCount = locked ? blast.progress.total : targets.length;
   const estimate = estimateSeconds(plannedCount, delaySec);
-  const previewText = blast.progress.current ? "" : mode === "single" ? text.trim() : (pool[0] ?? "");
+  // Preview with a real recipient when there is one, else a sample, so {ten}… show filled.
+  const previewUser = recipients[0] ?? SAMPLE_USER;
+  const rawPreview = mode === "single" ? text.trim() : (pool[0] ?? "");
+  const previewText = blast.progress.current ? "" : fillTemplate(rawPreview, previewUser);
 
   const run = async () => {
     setDialog(null);
@@ -128,7 +141,10 @@ export function AutoSendPanel({
       targets,
       delaySec,
       firstContact,
-      pickText: mode === "single" ? () => text.trim() : () => pool[Math.floor(Math.random() * pool.length)] ?? "",
+      pickText:
+        mode === "single"
+          ? (u) => fillTemplate(text.trim(), u)
+          : (u) => fillTemplate(pool[Math.floor(Math.random() * pool.length)] ?? "", u),
     });
     const summary = [
       result.stopped ? "Đã dừng." : "Hoàn tất.",
@@ -177,13 +193,11 @@ export function AutoSendPanel({
                 <Label htmlFor="blast-cap" className="text-xs text-muted-foreground">
                   Gửi tối đa
                 </Label>
-                <Input
+                <NumberField
                   id="blast-cap"
-                  type="number"
-                  min={0}
                   value={cap}
                   disabled={locked}
-                  onChange={(e) => patchOutreachSettings({ cap: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                  onCommit={(n) => patchOutreachSettings({ cap: Math.max(0, Math.floor(n)) })}
                   placeholder="Tất cả"
                   className="w-24 tabular-nums"
                 />
@@ -226,15 +240,17 @@ export function AutoSendPanel({
               {mode === "single" ? (
                 <>
                   <Textarea
+                    ref={textRef}
                     rows={4}
                     maxLength={4000}
                     value={text}
                     disabled={locked}
                     onChange={(e) => patchOutreachSettings({ text: e.target.value })}
-                    placeholder="Nội dung gửi cho mọi người"
+                    placeholder="Nội dung gửi cho mọi người — có thể chèn {ten}, {tuoi}…"
                     aria-invalid={bytes > MAX_TEXT_BYTES}
                     className="resize-y"
                   />
+                  <TemplateVarBar textareaRef={textRef} value={text} onChange={(t) => patchOutreachSettings({ text: t })} disabled={locked} />
                   {bytes > MAX_TEXT_BYTES * 0.8 && (
                     <p className={cn("text-right text-xs tabular-nums", bytes > MAX_TEXT_BYTES && "text-destructive")}>
                       {bytes}/{MAX_TEXT_BYTES} byte
@@ -290,13 +306,11 @@ export function AutoSendPanel({
 
             <Step n={4} title="Giãn cách & tuỳ chọn" meta={`${delaySec} giây/tin`}>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.5}
+                <NumberField
+                  decimal
                   value={delaySec}
                   disabled={locked}
-                  onChange={(e) => patchOutreachSettings({ delaySec: Math.max(0, Number(e.target.value) || 0) })}
+                  onCommit={(n) => patchOutreachSettings({ delaySec: Math.max(0, n) })}
                   className="w-20 tabular-nums"
                   aria-label="Giãn cách giữa 2 tin (giây)"
                 />
@@ -318,7 +332,9 @@ export function AutoSendPanel({
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
             {/* preview */}
             <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{blast.progress.current ? "Đang gửi" : "Xem trước"}</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {blast.progress.current ? "Đang gửi" : recipients[0] ? "Xem trước" : "Xem trước (ví dụ)"}
+              </span>
               {blast.progress.current ? (
                 <p className="truncate text-sm">
                   {blast.progress.current.peer} <span className="text-muted-foreground">qua {blast.progress.current.sender}</span>
@@ -349,6 +365,11 @@ export function AutoSendPanel({
               </Button>
             )}
             {!locked && reason && <p className="text-sm text-muted-foreground">{reason}</p>}
+            {!locked && invalidFilled > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                {invalidFilled} người sẽ bị bỏ qua: nội dung sau khi điền biến bị rỗng hoặc quá {MAX_TEXT_BYTES} byte.
+              </p>
+            )}
             {!locked && !reason && (
               <p className="text-xs text-muted-foreground">
                 Mỗi lần gửi account có thể đăng nhập TCP mới rồi ngắt; app điện thoại có thể bị đăng xuất.

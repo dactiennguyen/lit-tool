@@ -25,6 +25,8 @@ export function HistoryDialog({ open, onOpenChange, rows }: { open: boolean; onO
                     <Badge variant="outline">thử</Badge>
                   ) : r.ok ? (
                     <Badge variant="secondary">đã gửi</Badge>
+                  ) : r.uncertain ? (
+                    <Badge variant="outline">chưa rõ</Badge>
                   ) : (
                     <Badge variant="destructive">lỗi</Badge>
                   )}

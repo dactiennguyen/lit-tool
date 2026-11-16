@@ -7,10 +7,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { canSend } from "@/features/chat/chat-view";
 import type { UserProfile } from "@/lib/lit-types";
 import { conversationsKey } from "@/lib/queries";
 import { logSent } from "./sent-log";
 import { userKey } from "./outreach-view";
+
+/** The backend's "frame written, no ACK" error (hx.rs SendUnknown): maybe delivered. */
+const isUncertainSend = (message: string) => message.includes("Không rõ tin đã gửi được chưa");
 
 export type SendState = "ok" | "fail";
 
@@ -47,8 +51,8 @@ export interface BlastResult {
 export interface BlastJob {
   senders: BlastSender[];
   targets: UserProfile[];
-  /** Text for the next message (fixed, or a random template). */
-  pickText: () => string;
+  /** The message for one recipient (fixed or random template, variables filled). */
+  pickText: (user: UserProfile) => string;
   delaySec: number;
   /** Write Litmatch "new conversation" metadata (a first-contact / bắt chuyện). */
   firstContact: boolean;
@@ -96,7 +100,7 @@ export function useBlast() {
         const user = targets[i]!;
         const sender = senders[i % senders.length]!;
         const to = user.huanxinId;
-        const text = pickText();
+        const text = pickText(user);
         const at = Date.now();
         const name = user.nickname ?? user.userId ?? "(không tên)";
         const base = { id: `${at}-${i}`, at, peerName: name, senderLabel: sender.label, text };
@@ -116,6 +120,14 @@ export function useBlast() {
           const note = "Người này không có IM id nên không gửi được.";
           add({ ...base, state: "fail", note });
           logSent({ ...logBase, ok: false, error: note, note: null });
+        } else if (!canSend(text)) {
+          // The filled template can end up empty ({tuoi} with no age) or over the
+          // byte limit ({ten} with a long name); the backend would reject it, so
+          // skip and log instead of sending something that cannot go through.
+          fail++;
+          const note = "Nội dung sau khi điền biến không gửi được (rỗng hoặc quá 4096 byte).";
+          add({ ...base, state: "fail", note });
+          logSent({ ...logBase, ok: false, error: note, note: null });
         } else {
           try {
             const outcome = await api.hx.sendText(sender.id, to, text, firstContact);
@@ -127,11 +139,19 @@ export function useBlast() {
           } catch (e) {
             fail++;
             const msg = (e as Error).message;
-            add({ ...base, state: "fail", note: msg });
-            // Persist failures too. The backend returns a distinct "unknown"
-            // outcome when the frame was written but no ACK came back, and asks
-            // the user to check history before resending — so history must have it.
-            logSent({ ...logBase, ok: false, error: msg, note: null });
+            // The backend writes the frame then waits for an ACK; an "unknown"
+            // result means the message may already have been delivered. Mark it
+            // contacted (not a clean failure) so a re-run holds this person
+            // instead of blindly sending again, and persist it to history.
+            const uncertain = isUncertainSend(msg);
+            add({
+              ...base,
+              state: "fail",
+              note: uncertain
+                ? "Chưa rõ đã gửi được chưa — đã đánh dấu đã liên hệ; kiểm tra lịch sử trước khi gửi lại."
+                : msg,
+            });
+            logSent({ ...logBase, ok: false, uncertain, error: msg, note: null });
           }
         }
         setProgress({ done: i + 1, total: targets.length, ok, fail, current: null });

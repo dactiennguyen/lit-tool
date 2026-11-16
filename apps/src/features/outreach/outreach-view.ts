@@ -1,6 +1,7 @@
 // Pure helpers for the "Lấy & gửi" feature (collect online users, then blast a
 // message from several accounts). No React, no network — unit-testable.
 
+import { GENDER_LABEL, genderOf, locationOf } from "@/lib/lit-format";
 import type { UserProfile } from "@/lib/lit-types";
 
 export type Tone = "idle" | "ok" | "warn" | "bad";
@@ -13,6 +14,53 @@ export interface StatusText {
 export function userKey(u: UserProfile): string {
   return u.userId ?? u.huanxinId ?? "";
 }
+
+/** The recipient fields a message template can draw on. */
+export type TemplateUser = Pick<
+  UserProfile,
+  "nickname" | "age" | "gender" | "ipCity" | "country" | "ipCountry" | "litId"
+>;
+
+/** A variable the user can drop into a template, e.g. {ten}. */
+export interface TemplateVar {
+  /** Canonical token shown in the UI. */
+  token: string;
+  /** Human label for the tooltip. */
+  label: string;
+  /** Spellings accepted inside the braces (lowercase), aliases included. */
+  keys: string[];
+  /** This recipient's value; "" when unknown ({ten} falls back to "bạn"). */
+  value: (u: TemplateUser) => string;
+}
+
+export const TEMPLATE_VARS: TemplateVar[] = [
+  { token: "{ten}", label: "Tên / nickname", keys: ["ten", "name", "nickname", "username", "user"], value: (u) => (u.nickname ?? "").trim() || "bạn" },
+  { token: "{tuoi}", label: "Tuổi", keys: ["tuoi", "age"], value: (u) => (u.age != null ? String(u.age) : "") },
+  { token: "{gioitinh}", label: "Giới tính (Nam/Nữ)", keys: ["gioitinh", "gender", "sex"], value: (u) => { const g = genderOf(u.gender); return g ? GENDER_LABEL[g] : ""; } },
+  { token: "{noio}", label: "Nơi ở", keys: ["noio", "diadiem", "location", "city", "place"], value: (u) => locationOf(u) ?? "" },
+  { token: "{id}", label: "Lit ID", keys: ["id", "litid"], value: (u) => (u.litId != null ? String(u.litId) : "") },
+];
+
+const VAR_BY_KEY = new Map<string, TemplateVar>(TEMPLATE_VARS.flatMap((v) => v.keys.map((k) => [k, v] as const)));
+
+/**
+ * Fills {ten}, {tuoi}, {gioitinh}, {noio}, {id} — case-insensitive, aliases too —
+ * with this recipient's details. An unknown {token} is left untouched.
+ */
+export function fillTemplate(text: string, user: TemplateUser): string {
+  return text.replace(/\{\s*([a-zA-Z_]+)\s*\}/g, (whole, key: string) => VAR_BY_KEY.get(key.toLowerCase())?.value(user) ?? whole);
+}
+
+/** A stand-in recipient so a template preview has something to show. */
+export const SAMPLE_USER: TemplateUser = {
+  nickname: "Linh",
+  age: 21,
+  gender: "girl",
+  ipCity: "Hà Nội",
+  country: "VN",
+  ipCountry: null,
+  litId: 12345678,
+};
 
 /** Keep a people-count within [1, max]; non-finite input falls back to 1. */
 export function clampCount(n: number, max = 5000): number {
