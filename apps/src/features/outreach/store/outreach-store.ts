@@ -10,6 +10,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { canSend } from "@/features/chat/lib/chat-view";
 import type { UserProfile } from "@/lib/lit/lit-types";
+import { GENDER_LABEL, genderOf, locationOf, safeImageUrl } from "@/lib/lit/lit-format";
 import { conversationsKey } from "@/lib/queries";
 import { rememberPeers } from "@/stores/peer-directory";
 import type { Account } from "@/lib/api";
@@ -35,6 +36,9 @@ export interface BlastLogEntry {
   id: string;
   at: number;
   peerName: string;
+  peerAvatar: string | null;
+  /** "Nữ · 21 tuổi · Hà Nội", or null. */
+  peerMeta: string | null;
   senderLabel: string;
   text: string;
   state: SendState;
@@ -64,6 +68,13 @@ export interface BlastJob {
   delaySec: number;
   /** Write Litmatch "new conversation" metadata (a first-contact / bắt chuyện). */
   firstContact: boolean;
+}
+
+/** "Nữ · 21 tuổi · Hà Nội" from what the profile has, or null. */
+function personMeta(u: UserProfile): string | null {
+  const g = genderOf(u.gender);
+  const parts = [g && GENDER_LABEL[g], u.age ? `${u.age} tuổi` : null, locationOf(u)].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 const IDLE: BlastProgress = { done: 0, total: 0, ok: 0, fail: 0, current: null };
@@ -270,6 +281,8 @@ export const useOutreachStore = create<OutreachState>((set, get) => ({
             id: `${Date.now()}-${i}`,
             at: Date.now(),
             peerName: "—",
+            peerAvatar: null,
+            peerMeta: null,
             senderLabel: "—",
             text: "",
             state: "fail",
@@ -283,7 +296,9 @@ export const useOutreachStore = create<OutreachState>((set, get) => ({
         const text = pickText(user);
         const at = Date.now();
         const name = user.nickname ?? user.userId ?? "(không tên)";
-        const base = { id: `${at}-${i}`, at, peerName: name, senderLabel: sender.label, text };
+        const peerAvatar = safeImageUrl(user.avatar);
+        const peerMeta = personMeta(user);
+        const base = { id: `${at}-${i}`, at, peerName: name, peerAvatar, peerMeta, senderLabel: sender.label, text };
         const logBase = {
           sentAt: at,
           accountId: sender.id,
@@ -291,6 +306,8 @@ export const useOutreachStore = create<OutreachState>((set, get) => ({
           peerUid: userKey(user),
           peerImId: to ?? "",
           peerName: name,
+          peerAvatar,
+          peerMeta,
           text,
         };
         set({ sendProgress: { done: i, total: targets.length, ok, fail, current: { peer: name, sender: sender.label } } });

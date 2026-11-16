@@ -18,6 +18,9 @@ export interface SentEntry {
   /** The IM id the message was sent to. */
   peerImId: string;
   peerName: string;
+  /** The person's avatar URL and "Nữ · 21 tuổi · Hà Nội", when known (rows of earlier builds have none). */
+  peerAvatar?: string | null;
+  peerMeta?: string | null;
   text: string;
   /** A real send the server accepted. Failures are false. */
   ok: boolean;

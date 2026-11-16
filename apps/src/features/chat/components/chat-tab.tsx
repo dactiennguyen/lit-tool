@@ -2,6 +2,7 @@ import { useReducer, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   AlertTriangleIcon,
+  CornerDownRightIcon,
   InboxIcon,
   Loader2Icon,
   MessageSquareIcon,
@@ -235,7 +236,7 @@ function ConversationList({
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
         <p className="text-xs font-medium text-muted-foreground">
           {conversations.length} hội thoại
-          {unread > 0 && <span className="text-primary"> · {unread} chưa đọc</span>}
+          {unread > 0 && <span className="font-medium text-sky-700 dark:text-sky-300"> · {unread} chưa đọc</span>}
           {query.isPending && <span> · đang tải…</span>}
         </p>
         <Button
@@ -320,7 +321,9 @@ function ConversationItem({
       aria-current={selected ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition-colors duration-150",
-        "hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+        "relative hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+        // They wrote last and it was not opened here: tinted, with an accent bar.
+        unread && !selected && "bg-sky-500/8 before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-sky-500 dark:bg-sky-400/10 dark:before:bg-sky-400",
         selected && "bg-muted",
       )}
     >
@@ -339,13 +342,19 @@ function ConversationItem({
           {message?.timestamp != null && (
             <time
               dateTime={new Date(message.timestamp).toISOString()}
-              className={cn("shrink-0 text-[11px] tabular-nums", unread ? "text-primary" : "text-muted-foreground")}
+              className={cn("shrink-0 text-[11px] tabular-nums", unread ? "font-medium text-sky-700 dark:text-sky-300" : "text-muted-foreground")}
             >
               {shortTime(message.timestamp)}
             </time>
           )}
         </span>
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
+          {message && me && message.from !== me && (
+            <CornerDownRightIcon
+              className={cn("size-3 shrink-0", unread ? "text-sky-600 dark:text-sky-400" : "text-muted-foreground")}
+              aria-label="Họ nhắn"
+            />
+          )}
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-xs",
@@ -357,7 +366,7 @@ function ConversationItem({
             {subtitle}
           </span>
           {unread && (
-            <span className="size-2 shrink-0 rounded-full bg-primary" role="img" aria-label="Chưa đọc" />
+            <span className="size-2 shrink-0 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label="Chưa đọc" />
           )}
         </span>
       </span>

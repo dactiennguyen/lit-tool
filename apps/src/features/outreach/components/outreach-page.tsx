@@ -13,6 +13,7 @@ import {
   Loader2Icon,
   LogInIcon,
   MessageCircleReplyIcon,
+  RadarIcon,
   SquareIcon,
   TriangleAlertIcon,
   UsersIcon,
@@ -168,7 +169,15 @@ export function OutreachPage() {
           <aside className="flex w-[360px] shrink-0 flex-col border-r bg-card">
             {/* ---- Lấy (the only part that differs from the reference app) ---- */}
             <section className="flex flex-col gap-3 border-b p-3">
-              <h2 className="text-sm font-semibold">Lấy người online</h2>
+              <div className="flex items-center gap-2.5">
+                <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/12 text-primary">
+                  <RadarIcon className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-sm leading-tight font-semibold">Lấy người online</h2>
+                  <p className="text-[11px] text-muted-foreground">Từ danh sách “Người mới” của các account</p>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <NumberField
                   value={settings.target}
@@ -264,10 +273,12 @@ function Chip({ label, on, disabled, onToggle }: { label: string; on: boolean; d
       onClick={onToggle}
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        on
+          ? "border-primary/40 bg-primary/12 text-foreground"
+          : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      {on && <CheckIcon className="size-3" aria-hidden />}
+      {on && <CheckIcon className="size-3 text-primary" aria-hidden />}
       <span className="max-w-28 truncate">{label}</span>
     </button>
   );

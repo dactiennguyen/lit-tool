@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { CircleCheckIcon, CircleXIcon, InboxIcon, Trash2Icon } from "lucide-react";
+import { PersonAvatar } from "@/components/account-avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BlastLogEntry } from "@/features/outreach/store/outreach-store";
+import { ExpandableText } from "./expandable-text";
 
 type Filter = "all" | "ok" | "fail";
 
@@ -55,17 +57,21 @@ export function SendLog({ entries, canClear, onClear }: { entries: BlastLogEntry
       ) : (
         <ul className="flex max-h-72 flex-col gap-0.5 overflow-y-auto rounded-md border p-1 text-sm lg:max-h-none">
           {shown.map((e) => (
-            <li key={e.id} className={cn("flex items-start gap-2 rounded-md px-2 py-1.5", e.state === "fail" && "bg-destructive/5")}>
-              {e.state === "fail" ? (
-                <CircleXIcon className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-              ) : (
-                <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-              )}
-              <span className="min-w-0 flex-1">
+            <li key={e.id} className={cn("flex items-start gap-2.5 rounded-md px-2 py-2", e.state === "fail" && "bg-destructive/5")}>
+              <span className="relative shrink-0">
+                <PersonAvatar name={e.peerName} src={e.peerAvatar} />
+                {e.state === "fail" ? (
+                  <CircleXIcon className="absolute -right-1 -bottom-1 size-4 rounded-full bg-card text-destructive" aria-label="Lỗi" />
+                ) : (
+                  <CircleCheckIcon className="absolute -right-1 -bottom-1 size-4 rounded-full bg-card text-success" aria-label="Đã gửi" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 space-y-0.5">
                 <span className="block truncate">
-                  {e.peerName} <span className="text-muted-foreground">qua {e.senderLabel}</span>
+                  <span className="font-medium">{e.peerName}</span> <span className="text-muted-foreground">qua {e.senderLabel}</span>
                 </span>
-                {e.text && <span className="block truncate text-xs text-muted-foreground">{e.text}</span>}
+                {e.peerMeta && <span className="block truncate text-[11px] text-muted-foreground">{e.peerMeta}</span>}
+                {e.text && <ExpandableText text={e.text} className="text-xs text-muted-foreground" />}
                 {e.note && (
                   <span className={cn("block truncate text-xs", e.state === "fail" ? "text-destructive" : "text-amber-600 dark:text-amber-500")}>
                     {e.note}

@@ -117,7 +117,13 @@ export function ThreadPane({
           description="Người này chưa có trong danh sách hội thoại của account. Tin đầu tiên sẽ được tính là một lượt bắt chuyện."
         />
       ) : (
-        <MessageList history={history} me={me} accountId={account.id} conversationId={conversation.id} />
+        <MessageList
+          history={history}
+          me={me}
+          accountId={account.id}
+          conversationId={conversation.id}
+          peer={isGroup ? null : { name, avatarUrl: peer?.avatarUrl ?? null }}
+        />
       )}
 
       {isGroup ? (
@@ -136,11 +142,14 @@ function MessageList({
   me,
   accountId,
   conversationId,
+  peer,
 }: {
   history: ReturnType<typeof useHistory>;
   me: string;
   accountId: string;
   conversationId: string;
+  /** The other side of a one-to-one chat, for the avatar beside their messages. */
+  peer: { name: string; avatarUrl: string | null } | null;
 }) {
   const thread = useMemo(() => toThread(history.data?.pages ?? [], me), [history.data, me]);
   const newestId = thread[thread.length - 1]?.id;
@@ -209,21 +218,37 @@ function MessageList({
       </div>
       {history.isError && <p className="mb-2 text-center text-xs text-destructive">{history.error.message}</p>}
       <ol className="space-y-1.5" aria-label="Tin nhắn" aria-live="polite">
-        {thread.map((m) => (
-          <Bubble key={m.id} message={m} />
+        {thread.map((m, i) => (
+          // Their avatar once per run of their messages, beside the last one.
+          <Bubble key={m.id} message={m} peer={peer} showAvatar={!m.mine && thread[i + 1]?.mine !== false} />
         ))}
       </ol>
     </div>
   );
 }
 
-function Bubble({ message: m }: { message: ThreadMessage }) {
+function Bubble({
+  message: m,
+  peer,
+  showAvatar,
+}: {
+  message: ThreadMessage;
+  peer: { name: string; avatarUrl: string | null } | null;
+  showAvatar: boolean;
+}) {
   return (
-    <li className={cn("flex", m.mine ? "justify-end" : "justify-start")}>
+    <li className={cn("flex items-end gap-2", m.mine ? "justify-end" : "justify-start")}>
+      {!m.mine && peer && (
+        <span className="w-7 shrink-0">
+          {showAvatar && <PersonAvatar name={peer.name} src={peer.avatarUrl} size="sm" className="size-7" />}
+        </span>
+      )}
       <div
         className={cn(
-          "max-w-[75%] rounded-2xl px-3 py-1.5 text-sm",
-          m.mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted",
+          "max-w-[75%] rounded-2xl px-3 py-1.5 text-sm shadow-xs",
+          m.mine
+            ? "rounded-br-md bg-primary text-primary-foreground"
+            : "rounded-bl-md border border-sky-500/20 bg-sky-500/10 text-foreground dark:border-sky-400/20 dark:bg-sky-400/12",
         )}
       >
         <p className="break-words whitespace-pre-wrap">{m.text}</p>

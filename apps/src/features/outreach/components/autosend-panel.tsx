@@ -7,6 +7,10 @@ import {
   MessageSquareTextIcon,
   SendIcon,
   SquareIcon,
+  TimerIcon,
+  UserCheckIcon,
+  UsersRoundIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -30,8 +34,9 @@ import { cn } from "@/lib/utils";
 import { HistoryDialog } from "./history-dialog";
 import { NumberField } from "./number-field";
 import { patchOutreachSettings, useOutreachSettings } from "@/features/outreach/store/outreach-settings";
-import { estimateSeconds, fillTemplate, formatDuration, messagesPerMinute, SAMPLE_USER, userKey } from "@/features/outreach/lib/outreach-view";
+import { estimateSeconds, fillTemplate, formatDuration, messagesPerMinute, userKey } from "@/features/outreach/lib/outreach-view";
 import { SendLog } from "./send-log";
+import { TONE, type Tone } from "./tones";
 import type { Contact, SentRow } from "@/features/outreach/store/sent-log";
 import { TemplateVarBar } from "./template-vars";
 import { TemplatesDialog } from "./templates-dialog";
@@ -132,10 +137,6 @@ export function AutoSendPanel({
 
   const plannedCount = locked ? sendProgress.total : targets.length;
   const estimate = estimateSeconds(plannedCount, delaySec);
-  // Preview with a real recipient when there is one, else a sample, so {ten}… show filled.
-  const previewUser = recipients[0] ?? SAMPLE_USER;
-  const rawPreview = mode === "single" ? text.trim() : (pool[0] ?? "");
-  const previewText = sendProgress.current ? "" : fillTemplate(rawPreview, previewUser);
 
   const run = async () => {
     setDialog(null);
@@ -171,7 +172,7 @@ export function AutoSendPanel({
     <main aria-label="Gửi tin" className="@container flex min-h-0 min-w-0 flex-1">
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto @2xl:grid-cols-[minmax(300px,1.05fr)_minmax(280px,0.95fr)] @2xl:overflow-hidden">
         {/* ---------------- Auto gửi (config) ---------------- */}
-        <div className="flex min-w-0 flex-col border-r @2xl:min-h-0 @2xl:overflow-y-auto">
+        <div className="flex min-w-0 flex-col border-r bg-muted/40 @2xl:min-h-0 @2xl:overflow-y-auto">
           <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
             <h2 className="text-sm font-semibold">Auto gửi</h2>
             <span className="flex-1" />
@@ -185,8 +186,8 @@ export function AutoSendPanel({
             </Button>
           </header>
 
-          <div className="flex flex-col gap-5 p-4">
-            <Step n={1} title="Người nhận" meta={`${targets.length} người`}>
+          <div className="flex flex-col gap-3 p-4">
+            <Step n={1} icon={UsersRoundIcon} tone="sky" title="Người nhận" meta={`${targets.length} người`}>
               <p className="text-sm text-muted-foreground">
                 Sẽ gửi tới <strong className="tabular-nums text-foreground">{targets.length}</strong> người · đã tick {recipients.length}/{listCount}
               </p>
@@ -211,7 +212,7 @@ export function AutoSendPanel({
               </div>
             </Step>
 
-            <Step n={2} title="Gửi bằng account" meta={`${senders.length} account`}>
+            <Step n={2} icon={UserCheckIcon} tone="violet" title="Gửi bằng account" meta={`${senders.length} account`}>
               {online.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {online.map((a) => (
@@ -235,15 +236,24 @@ export function AutoSendPanel({
               )}
             </Step>
 
-            <Step n={3} title="Nội dung" meta={mode === "single" ? "1 nội dung" : `${pool.length} mẫu`}>
-              <div className="inline-flex self-start rounded-md border p-0.5">
+            <Step
+              n={3}
+              icon={MessageSquareTextIcon}
+              tone="amber"
+              title="Nội dung"
+              meta={mode === "single" ? "1 nội dung" : `${pool.length} mẫu`}
+            >
+              <div className="inline-flex self-start rounded-lg bg-muted p-0.5">
                 {(["single", "random"] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
                     disabled={locked}
                     onClick={() => patchOutreachSettings({ mode: m })}
-                    className={cn("rounded px-2.5 py-1 text-xs", mode === m ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}
+                    className={cn(
+                      "rounded-md px-2.5 py-1 text-xs transition-colors",
+                      mode === m ? "bg-card font-medium text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+                    )}
                   >
                     {m === "single" ? "Một nội dung" : `Ngẫu nhiên từ mẫu (${templates.length})`}
                   </button>
@@ -309,7 +319,7 @@ export function AutoSendPanel({
               )}
             </Step>
 
-            <Step n={4} title="Giãn cách & tuỳ chọn" meta={`${delaySec} giây/tin`}>
+            <Step n={4} icon={TimerIcon} tone="teal" title="Giãn cách & tuỳ chọn" meta={`${delaySec} giây/tin`}>
               <div className="flex items-center gap-2">
                 <NumberField
                   decimal
@@ -333,38 +343,24 @@ export function AutoSendPanel({
         </div>
 
         {/* ---------------- Xem trước + nhật ký (live) ---------------- */}
-        <div className="flex min-w-0 flex-col border-t @2xl:min-h-0 @2xl:border-t-0">
+        <div className="flex min-w-0 flex-col border-t bg-muted/40 @2xl:min-h-0 @2xl:border-t-0">
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-            {/* preview */}
-            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {sendProgress.current ? "Đang gửi" : recipients[0] ? "Xem trước" : "Xem trước (ví dụ)"}
-              </span>
-              {sendProgress.current ? (
-                <p className="truncate text-sm">
-                  {sendProgress.current.peer} <span className="text-muted-foreground">qua {sendProgress.current.sender}</span>
-                </p>
-              ) : previewText ? (
-                <p className="max-w-full self-end whitespace-pre-wrap break-words rounded-lg rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">{previewText}</p>
-              ) : (
-                <p className="py-1 text-center text-sm text-muted-foreground">{mode === "single" ? "Nhập nội dung để xem trước." : "Tick mẫu để xem trước."}</p>
-              )}
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="secondary">{plannedCount} người</Badge>
-                <Badge variant="secondary">{senders.length} account</Badge>
-                <Badge variant="secondary">{delaySec} giây/tin</Badge>
-                {estimate > 0 && <Badge variant="outline">≈ {formatDuration(estimate)}</Badge>}
-              </div>
+            {/* summary */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ToneBadge tone="sky" icon={UsersRoundIcon}>{plannedCount} người</ToneBadge>
+              <ToneBadge tone="violet" icon={UserCheckIcon}>{senders.length} account</ToneBadge>
+              <ToneBadge tone="teal" icon={TimerIcon}>{delaySec} giây/tin</ToneBadge>
+              {estimate > 0 && <Badge variant="outline">≈ {formatDuration(estimate)}</Badge>}
             </div>
 
             {/* action */}
             {locked ? (
-              <Button variant="destructive" onClick={stopBlast} disabled={stopping}>
+              <Button size="lg" variant="destructive" onClick={stopBlast} disabled={stopping}>
                 {stopping ? <Loader2Icon className="animate-spin" aria-hidden /> : <SquareIcon aria-hidden />}
                 {stopping ? "Đang dừng…" : `Dừng gửi · ${sendProgress.done}/${sendProgress.total}`}
               </Button>
             ) : (
-              <Button disabled={Boolean(reason)} onClick={onStart}>
+              <Button size="lg" className="shadow-sm" disabled={Boolean(reason)} onClick={onStart}>
                 <SendIcon aria-hidden />
                 Gửi tới {targets.length} người
               </Button>
@@ -383,7 +379,7 @@ export function AutoSendPanel({
 
             {/* progress */}
             {(locked || sendProgress.total > 0) && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 shadow-xs">
                 <div className="flex items-center gap-2 text-sm">
                   <span className="font-semibold tabular-nums">
                     {sendProgress.done}/{sendProgress.total}
@@ -394,6 +390,15 @@ export function AutoSendPanel({
                   {sendProgress.fail > 0 && <Badge variant="destructive">{sendProgress.fail} lỗi</Badge>}
                 </div>
                 <Bar value={sendProgress.done} max={sendProgress.total || 1} />
+                {sendProgress.current && (
+                  <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                    <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
+                    <span className="truncate">
+                      Đang gửi tới <span className="font-medium text-foreground">{sendProgress.current.peer}</span> qua{" "}
+                      {sendProgress.current.sender}
+                    </span>
+                  </p>
+                )}
               </div>
             )}
 
@@ -423,18 +428,48 @@ export function AutoSendPanel({
   );
 }
 
-function Step({ n, title, meta, children }: { n: number; title: string; meta?: ReactNode; children: ReactNode }) {
+function Step({
+  n,
+  icon: Icon,
+  tone,
+  title,
+  meta,
+  children,
+}: {
+  n: number;
+  icon: LucideIcon;
+  tone: Tone;
+  title: string;
+  meta?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <section className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2">
-        <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-          {n}
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs">
+      <div className="flex items-center gap-2.5">
+        <span aria-hidden className={cn("grid size-8 shrink-0 place-items-center rounded-lg", TONE[tone].tile)}>
+          <Icon className="size-4" />
         </span>
-        <h3 className="flex-1 text-sm font-semibold">{title}</h3>
-        {meta && <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{meta}</span>}
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium text-muted-foreground">Bước {n}</p>
+          <h3 className="truncate text-sm leading-tight font-semibold">{title}</h3>
+        </div>
+        {meta && (
+          <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums", TONE[tone].badge)}>
+            {meta}
+          </span>
+        )}
       </div>
       {children}
     </section>
+  );
+}
+
+function ToneBadge({ tone, icon: Icon, children }: { tone: Tone; icon: LucideIcon; children: ReactNode }) {
+  return (
+    <span className={cn("inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-medium tabular-nums", TONE[tone].badge)}>
+      <Icon className="size-3" aria-hidden />
+      {children}
+    </span>
   );
 }
 
@@ -447,10 +482,12 @@ function Chip({ label, on, disabled, onToggle }: { label: string; on: boolean; d
       onClick={onToggle}
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        on
+          ? "border-primary/40 bg-primary/12 text-foreground"
+          : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      {on && <CheckIcon className="size-3" aria-hidden />}
+      {on && <CheckIcon className="size-3 text-primary" aria-hidden />}
       <span className="max-w-32 truncate">{label}</span>
     </button>
   );
