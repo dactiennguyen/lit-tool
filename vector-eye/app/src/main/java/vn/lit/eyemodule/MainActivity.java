@@ -285,8 +285,9 @@ public final class MainActivity extends Activity {
                 try {
                     String value = data.getString("json");
                     JSONObject root = new JSONObject(value);
-                    JSONObject profile = root.getJSONObject("profile");
-                    status.setText("Đã lấy: " + profile.optString("nickname", "Tài khoản") + "\nUser ID: "
+                    JSONObject profile = root.optJSONObject("profile");
+                    String nickname = profile != null ? profile.optString("nickname", "Tài khoản") : "Tài khoản";
+                    status.setText("Đã lấy: " + nickname + "\nUser ID: "
                         + root.getJSONObject("account").getString("userId") + "\nTrường chưa có: " + root.getJSONArray("missing").length());
                     accountJson = value;
                     copy.setEnabled(true);
