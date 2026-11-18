@@ -20,34 +20,14 @@ public final class ExportInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (exportOnly) {
-                java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-                AtomicReference<String> exported = new AtomicReference<>();
-                Intent request = new Intent(AccountBridge.ACTION).setPackage("com.litatom.app");
-                request.putExtra("reply", new android.os.ResultReceiver(new android.os.Handler(android.os.Looper.getMainLooper())) {
-                    @Override protected void onReceiveResult(int code, Bundle data) {
-                        if (code == 0) exported.set(data.getString("json"));
-                        done.countDown();
-                    }
-                });
-                getTargetContext().sendBroadcast(request);
-                check(done.await(12, java.util.concurrent.TimeUnit.SECONDS) && exported.get() != null, "Current account export unavailable");
-                JSONObject current = new JSONObject(exported.get());
+                JSONObject current = RootAccountReader.read(getTargetContext());
                 check(current.getInt("androidUser") == 0, "Wrong user");
-                try (java.io.FileOutputStream file = getTargetContext().openFileOutput("current-account-export.json", Context.MODE_PRIVATE)) {
-                    file.write(exported.get().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                }
-                result.putString("result", "PASS: current account exported to app-private file");
+                result.putInt("profileFields", current.getJSONObject("profile").length());
+                result.putInt("missingFields", current.getJSONArray("missing").length());
+                result.putString("result", "PASS: root account read; no credentials written to file or log");
                 finish(Activity.RESULT_OK, result);
                 return;
             }
-            try (android.os.ParcelFileDescriptor fd = getUiAutomation().executeShellCommand(
-                    "am start --user 0 -n com.litatom.app/.DefaultLauncherAlias")) {
-                try (java.io.FileInputStream in = new java.io.FileInputStream(fd.getFileDescriptor())) {
-                    byte[] buffer = new byte[1024];
-                    while (in.read(buffer) != -1) { }
-                }
-            }
-            Thread.sleep(5000);
             Activity activity = startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             waitForIdleSync();
             ViewGroup root = (ViewGroup) activity.getWindow().getDecorView();
@@ -56,13 +36,13 @@ public final class ExportInstrumentation extends Instrumentation {
             if (fetch.get() == null || copy.get() == null) throw new AssertionError("Missing buttons");
             runOnMainSync(() -> fetch.get().performClick());
             boolean enabled = false;
-            for (int i = 0; i < 100; i++) {
+            for (int i = 0; i < 1200; i++) {
                 Thread.sleep(100);
                 AtomicReference<Boolean> ready = new AtomicReference<>(false);
                 runOnMainSync(() -> ready.set(copy.get().isEnabled()));
                 if (ready.get()) { enabled = true; break; }
             }
-            if (!enabled) throw new AssertionError("Export did not enable Copy JSON; open Litmatch after instrumentation starts");
+            if (!enabled) throw new AssertionError("Root read did not enable Copy JSON; grant Eye root on user 0");
             AtomicReference<Boolean> hidden = new AtomicReference<>(false), shown = new AtomicReference<>(false);
             runOnMainSync(() -> {
                 hidden.set(!hasVisibleJson(root));
@@ -84,6 +64,7 @@ public final class ExportInstrumentation extends Instrumentation {
             JSONObject json = new JSONObject(clipboard.get());
             JSONObject account = json.getJSONObject("account"), profile = json.getJSONObject("profile"), env = json.getJSONObject("env");
             check(json.getInt("androidUser") == 0, "Wrong Android user");
+            check("persisted-storage".equals(json.getString("captureMode")), "Wrong capture mode");
             check(account.getString("userId").equals(profile.getString("user_id")), "Profile mismatch");
             check(account.getString("session").equals(env.getString("LIT_SID")), "Session mismatch");
             check(account.getString("hxPwd").equals(env.getString("HX_PASSWORD")), "Password mismatch");

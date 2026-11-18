@@ -35,7 +35,7 @@ public final class MainActivity extends Activity {
     private final DeviceController devices = new DeviceController();
     private DeviceController.Snapshot deviceSnapshot;
     private TextView deviceStatus, devicePreview;
-    private Button readDevice, rotateDevice, resetDevice, verifyDevice, open, rootManager;
+    private Button readDevice, rotateDevice, resetDevice, verifyDevice, rootManager;
     private boolean deviceBusy, deviceWaiting;
     private int deviceRequestId;
     private int rootCheckId;
@@ -51,14 +51,8 @@ public final class MainActivity extends Activity {
         scroll.addView(layout);
         TextView title = text(layout, "Eye · Tài khoản và thiết bị", 28);
         title.setTextColor(Color.rgb(23, 43, 77));
-        text(layout, "Lấy JSON của tài khoản Litmatch đang đăng nhập trên user 0.", 16);
-        status = text(layout, "Mở Litmatch một lần, sau đó quay lại Eye và bấm Lấy tài khoản.", 16);
-        open = button(layout, "Mở Litmatch");
-        open.setOnClickListener(v -> {
-            Intent launch = getPackageManager().getLaunchIntentForPackage("com.litatom.app");
-            if (launch != null) startActivity(launch);
-            else status.setText("Không có Litmatch trong user Android này.");
-        });
+        text(layout, "Lấy JSON tài khoản được Litmatch lưu trên user 0. Không kiểm tra phiên với server.", 16);
+        status = text(layout, "Bấm Lấy tài khoản — đọc trực tiếp bằng root, không cần mở Litmatch.", 16);
         fetch = button(layout, "Lấy tài khoản hiện tại");
         fetch.setOnClickListener(v -> requestAccount());
         copy = button(layout, "Copy JSON");
@@ -107,7 +101,6 @@ public final class MainActivity extends Activity {
         if (!controllerUser) {
             status.setText("Mở Eye ở user 0 để điều khiển Litmatch/user 0.");
             fetch.setEnabled(false);
-            open.setEnabled(false);
             rootManager.setEnabled(false);
             readDevice.setEnabled(false); rotateDevice.setEnabled(false); resetDevice.setEnabled(false); verifyDevice.setEnabled(false);
 
@@ -131,12 +124,11 @@ public final class MainActivity extends Activity {
     }
 
     private void updateDeviceButtons() {
-        boolean available = !deviceBusy && !deviceWaiting && controllerUser;
+        boolean available = !deviceBusy && !deviceWaiting && !waiting && controllerUser;
         readDevice.setEnabled(available);
         rotateDevice.setEnabled(available && deviceSnapshot != null);
         resetDevice.setEnabled(available && deviceSnapshot != null);
         verifyDevice.setEnabled(available);
-        open.setEnabled(available && Process.myUid() / 100000 == 0);
         rootManager.setEnabled(controllerUser);
         fetch.setEnabled(available && Process.myUid() / 100000 == 0 && !waiting);
     }
@@ -164,7 +156,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmDeviceChange(boolean clear) {
-        if (deviceBusy || deviceWaiting || deviceSnapshot == null) return;
+        if (deviceBusy || deviceWaiting || waiting || deviceSnapshot == null) return;
         new AlertDialog.Builder(this)
             .setTitle(clear ? "Xóa dữ liệu và tạo thiết bị mới?" : "Đổi thông tin thiết bị?")
             .setMessage(clear
@@ -176,7 +168,7 @@ public final class MainActivity extends Activity {
     }
 
     private void runDeviceAction(boolean mutate, boolean clear) {
-        if (deviceBusy || deviceWaiting) return;
+        if (deviceBusy || deviceWaiting || waiting) return;
         deviceBusy = true; deviceRequestId++;
         if (mutate) forgetAccount();
         updateDeviceButtons();
@@ -217,11 +209,11 @@ public final class MainActivity extends Activity {
         }
         accountJson = null; visible = false; preview.setText(""); preview.setVisibility(View.GONE);
         show.setText("Xem JSON"); show.setEnabled(false); copy.setEnabled(false);
-        status.setText("Bản chụp tài khoản đã bỏ. Lấy lại sau khi mở Litmatch.");
+        status.setText("Bản chụp tài khoản đã bỏ. Bấm Lấy tài khoản để đọc lại dữ liệu đã lưu.");
     }
 
     private void requestDeviceReport() {
-        if (deviceBusy || deviceWaiting || Process.myUid() / 100000 != 0) {
+        if (deviceBusy || deviceWaiting || waiting || Process.myUid() / 100000 != 0) {
             return;
         }
         int id = ++deviceRequestId;
@@ -263,7 +255,7 @@ public final class MainActivity extends Activity {
 
     private void requestAccount() {
         if (deviceBusy || deviceWaiting || waiting || Process.myUid() / 100000 != 0) return;
-        int id = ++requestId;
+        final int id = ++requestId;
         waiting = true;
         accountJson = null;
         visible = false;
@@ -272,35 +264,35 @@ public final class MainActivity extends Activity {
         copy.setEnabled(false);
         show.setEnabled(false);
         preview.setText("");
-        fetch.setEnabled(false);
-        status.setText("Đang lấy tài khoản từ Litmatch…");
-        Intent request = new Intent(AccountBridge.ACTION).setPackage("com.litatom.app");
-        request.putExtra("reply", new ResultReceiver(handler) {
-            @Override protected void onReceiveResult(int code, Bundle data) {
+        updateDeviceButtons();
+        status.setText("Đang đọc tài khoản bằng root…");
+        worker.execute(() -> {
+            String value = null, error = null;
+            try {
+                value = RootAccountReader.read(getApplicationContext()).toString(2);
+            } catch (IllegalStateException e) {
+                error = e.getMessage() != null ? e.getMessage() : "Không đọc được tài khoản.";
+            } catch (Exception e) {
+                android.util.Log.w("VectorEye", "Account read failed: " + e.getClass().getSimpleName());
+                error = "Không đọc được tài khoản (" + e.getClass().getSimpleName() + "). Kiểm tra quyền root cho Eye ở user 0.";
+            }
+            final String json = value, err = error;
+            handler.post(() -> {
                 if (id != requestId || !waiting || isDestroyed()) return;
                 waiting = false;
                 updateDeviceButtons();
-                if (code != 0) { status.setText(data.getString("error", "Không lấy được tài khoản.")); return; }
+                if (json == null) { status.setText(err); return; }
                 try {
-                    String value = data.getString("json");
-                    JSONObject root = new JSONObject(value);
-                    JSONObject profile = root.optJSONObject("profile");
-                    String nickname = profile != null ? profile.optString("nickname", "Tài khoản") : "Tài khoản";
-                    status.setText("Đã lấy: " + nickname + "\nUser ID: "
-                        + root.getJSONObject("account").getString("userId") + "\nTrường chưa có: " + root.getJSONArray("missing").length());
-                    accountJson = value;
+                    JSONObject root = new JSONObject(json);
+                    status.setText("Đã đọc dữ liệu đã lưu\nUser ID: "
+                        + root.getJSONObject("account").getString("userId")
+                        + "\nTrường chưa có: " + root.getJSONArray("missing").length());
+                    accountJson = json;
                     copy.setEnabled(true);
                     show.setEnabled(true);
                 } catch (Exception e) { status.setText("Dữ liệu trả về không hợp lệ. Hãy lấy lại."); }
-            }
+            });
         });
-        sendBroadcast(request);
-        handler.postDelayed(() -> {
-            if (id != requestId || !waiting || isDestroyed()) return;
-            waiting = false;
-            updateDeviceButtons();
-            status.setText("Chưa nhận được phản hồi. Bật Eye cho Litmatch user 0 trong Vector, đóng/mở lại Litmatch rồi thử lại.");
-        }, 8000);
     }
 
     private TextView text(LinearLayout layout, String value, int size) {

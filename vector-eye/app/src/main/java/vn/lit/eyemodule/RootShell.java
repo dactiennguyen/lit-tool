@@ -10,11 +10,24 @@ final class RootShell {
     interface Runner { String run(String script) throws Exception; }
 
     static String run(String script) throws Exception {
+        return run(script, 262144, 90, false);
+    }
+
+    static String runReadOnly(String script) throws Exception {
+        return run(script, 12 * 1024 * 1024, 30, true);
+    }
+
+    private static String run(String script, int maxOutput, int timeoutSeconds, boolean readOnly) throws Exception {
         java.lang.Process process = null;
         java.io.IOException lastError = null;
+        // Read-only reads need the global mount namespace: su launched from an app runs in the
+        // app's namespace, where another app's /data/data is not visible. --mount-master (magisk/
+        // APatch/KernelSU) joins the init namespace so Litmatch's files are readable.
         for (String executable : new String[]{"su", "/system/bin/su", "/system/xbin/su"}) {
             try {
-                process = new ProcessBuilder(executable, "-c", script).redirectErrorStream(true).start();
+                process = (readOnly
+                    ? new ProcessBuilder(executable, "--mount-master", "-c", script)
+                    : new ProcessBuilder(executable, "-c", script)).redirectErrorStream(true).start();
                 break;
             } catch (java.io.IOException error) { lastError = error; }
         }
@@ -28,7 +41,7 @@ final class RootShell {
             try (InputStream in = rootProcess.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
                 byte[] buffer = new byte[4096]; int n;
                 while ((n = in.read(buffer)) != -1) {
-                    if (bytes.size() + n > 262144) throw new IllegalStateException("Phản hồi root vượt giới hạn.");
+                    if (bytes.size() + n > maxOutput) throw new IllegalStateException("Phản hồi root vượt giới hạn.");
                     bytes.write(buffer, 0, n);
                 }
                 output.set(bytes.toString(StandardCharsets.UTF_8.name()));
@@ -36,9 +49,10 @@ final class RootShell {
         }, "eye-root-output");
         reader.setDaemon(true); reader.start();
         // TERM lets the shell run its rollback trap; completion must still be checked after a timeout.
-        boolean exited = rootProcess.waitFor(90, TimeUnit.SECONDS);
+        boolean exited = rootProcess.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         if (!exited) {
             rootProcess.destroy();
+            if (readOnly) throw new IllegalStateException("Đọc dữ liệu quá thời gian. Kiểm tra quyền root cho Eye rồi lấy lại.");
             throw new IllegalStateException("Lệnh root quá thời gian; kết quả thay đổi hoặc xóa dữ liệu chưa xác định. Kiểm tra lại Litmatch và cấu hình trước khi thử lại.");
         }
         reader.join(3000);

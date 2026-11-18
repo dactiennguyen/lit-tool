@@ -1,5 +1,64 @@
 # Module Vector thử nghiệm Eye
 
+## Hiện tại: đọc tài khoản trực tiếp bằng root (user 0)
+
+Nút **Lấy tài khoản hiện tại** gọi `RootAccountReader`, đọc file dưới
+`/data/user/0/com.litatom.app/` bằng root. Không cần Litmatch đang chạy hoặc
+module Eye được bật trong Vector để đọc tài khoản. Cấp root cho Eye ở user 0;
+Litmatch phải từng đăng nhập và lưu dữ liệu trên user này.
+
+Đây là **bản chụp dữ liệu đã lưu**, không phải request đến server và không chứng
+minh phiên còn hiệu lực. UI hiển thị nickname/user ID, cho xem hoặc copy JSON.
+JSON gồm `account`, `profile`, `env`, `missing`, metadata và
+`captureMode: "persisted-storage"`. Không có `im` hay trạng thái đăng nhập của
+SDK đang chạy. Field chưa lấy được được liệt kê trong `missing`.
+
+Nguồn: `mmkv.default/litmatch_key_info`, `lit_app_default_kv/sp_user_info`,
+`mmkv.default/device_id`; UUID dự phòng từ `shared_prefs/device_id.xml.xml`
+và `prefs_device_id_bak.xml`. Phiên bản và `EASEMOB_APPKEY` đọc từ package
+Litmatch. Tên kho/field phụ thuộc phiên bản Litmatch, không được đảm bảo cho
+mọi bản cập nhật.
+
+Reader kiểm tra metadata `.crc` trước/sau khi đọc, độ dài dữ liệu và CRC32;
+duyệt từng bản ghi, tôn trọng bản ghi xóa và chuỗi rỗng, bỏ qua phần dư ngoài
+độ dài đang dùng. Cách giải mã đối chiếu với
+[MiniPBCoder của Tencent MMKV](https://github.com/Tencent/MMKV/blob/v1.3.9/Core/MiniPBCoder.cpp)
+và [metadata/đọc file MMKV](https://github.com/Tencent/MMKV/blob/v1.3.9/Core/MMKV_IO.cpp).
+Chỉ hỗ trợ kho không mã hóa, metadata version 0–4, không bật expiry/flag mở rộng.
+Dữ liệu không hợp lệ bị từ chối; Eye không sửa hoặc khôi phục file của Litmatch.
+
+Reader đối chiếu user ID giữa tài khoản và profile, rồi đọc lại cả hai kho và
+UUID để phát hiện thay đổi trong lúc lấy dữ liệu. Đây không phải giao dịch nguyên
+tử giữa các file: nếu Litmatch đang ghi, hãy chờ rồi bấm lấy lại. Mỗi file tối đa
+8 MiB, JSON xuất tối đa 180.000 ký tự. Khi đọc tài khoản, các thao tác thiết bị
+được tạm khóa trên UI. File preference thiếu được bỏ qua; lỗi root/đọc file
+không bị coi là thiếu dữ liệu.
+
+Bridge trong tiến trình Litmatch hiện chỉ phục vụ **Kiểm tra thiết bị trong
+Litmatch**, vẫn cần Vector và Litmatch đang chạy. Phần điều khiển thiết bị bên
+dưới giữ yêu cầu cấu hình riêng của nó.
+
+Kiểm tra/build với JDK 17, Gradle 8.10.2 và Android SDK/NDK bên dưới:
+
+```sh
+gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+```
+
+`AccountStorageTest` dùng dữ liệu giả để kiểm tra bản ghi cũ/xóa/rỗng, checksum,
+file lỗi, đổi tài khoản khi đọc, profile, UUID fallback và giới hạn JSON.
+Kiểm tra ngày 18/11/2026: 20/20 unit test đạt; build APK chính và APK test thành
+công; lint 0 lỗi, 32 cảnh báo. Chưa cài/chạy bản thay đổi này trên điện thoại.
+Instrumentation hiện đọc qua root, không tự mở Litmatch. Tham số
+`-e exportOnly true` chỉ kiểm tra đọc và báo số field; không ghi credential ra file.
+Chạy test trên thiết bị đã cấp root cho Eye:
+
+```sh
+adb shell am instrument --user 0 -w vn.lit.eyemodule.test/vn.lit.eyemodule.ExportInstrumentation
+```
+
+Các mô tả Eye 0.2 và kết quả user 10 bên dưới là lịch sử, không phải luồng lấy
+tài khoản hiện tại.
+
 ## Eye: Litmatch user 0
 
 Eye dùng Litmatch và Hide My Device ở Android user 0. Bật hai module trong Vector,
